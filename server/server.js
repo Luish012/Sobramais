@@ -7,7 +7,33 @@ const axios     = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+
+// ─── CORS ──────────────────────────────────────────────────────────────────
+// Lista de origens permitidas (Netlify + dev local). FRONTEND_URL pode ser
+// usada para adicionar mais um domínio via variável de ambiente no Render.
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'https://sobramais.netlify.app',
+  'http://localhost:8080',
+  'http://localhost:3000',
+].filter(Boolean);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Requisições sem origin (ex: curl, server-to-server) são permitidas
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn('[CORS bloqueado]', origin);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'access_token'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 // ─── Supabase (service role para escrita) ─────────────────────────────────────
@@ -28,6 +54,7 @@ const asaas = axios.create({
 
 // ─── CRIAR ASSINATURA ────────────────────────────────────────────────────────
 app.post('/api/subscription/create', async (req, res) => {
+  console.log('[subscription/create] recebido', req.body?.email, req.body?.userId);
   const { userId, email, name } = req.body;
   if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios.' });
 
