@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finanças</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <meta name="theme-color" content="#faf9f6" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- LOADING                                                              -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-loading" class="auth-screen" style="display:flex">
+  <div class="spinner"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- LOGIN                                                                -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-login" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">💰</div>
+    <h1 class="auth-title">Entrar</h1>
+    <p class="auth-sub">Acesse seu controle financeiro</p>
+
+    <div class="form-group">
+      <label class="form-label">E-mail</label>
+      <input id="login-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Senha</label>
+      <input id="login-password" class="form-input" type="password" placeholder="••••••" autocomplete="current-password" />
+    </div>
+    <div id="login-error" class="auth-error"></div>
+    <button id="login-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Entrar</button>
+
+    <div class="auth-links">
+      <button id="go-forgot" class="auth-link">Esqueci minha senha</button>
+      <span class="auth-sep">·</span>
+      <button id="go-signup" class="auth-link">Criar conta</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- CADASTRO                                                             -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-signup" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">💰</div>
+    <h1 class="auth-title">Criar Conta</h1>
+    <p class="auth-sub">Comece a controlar suas finanças</p>
+
+    <div class="form-group">
+      <label class="form-label">Nome</label>
+      <input id="signup-name" class="form-input" type="text" placeholder="Seu nome" autocomplete="name" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">E-mail</label>
+      <input id="signup-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Senha</label>
+      <input id="signup-password" class="form-input" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirmar Senha</label>
+      <input id="signup-confirm" class="form-input" type="password" placeholder="Repita a senha" autocomplete="new-password" />
+    </div>
+    <div id="signup-error" class="auth-error"></div>
+    <button id="signup-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Criar Conta</button>
+
+    <div class="auth-links">
+      <button id="go-login-from-signup" class="auth-link">Já tenho conta — Entrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- CONFIRMAR E-MAIL                                                     -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-confirm-email" class="auth-screen" style="display:none">
+  <div class="auth-card" style="text-align:center">
+    <div style="font-size:3rem;margin-bottom:1rem">📧</div>
+    <h1 class="auth-title">Confirme seu e-mail</h1>
+    <p class="auth-sub" style="max-width:320px;margin:0 auto 1.5rem">
+      Enviamos um link de confirmação para o seu e-mail.<br>
+      Clique no link e depois faça login.
+    </p>
+    <button class="btn btn-outline" onclick="showAuthView('login')">Ir para Login</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- RECUPERAR SENHA                                                      -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-forgot-pw" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">🔑</div>
+    <h1 class="auth-title">Recuperar Senha</h1>
+    <p class="auth-sub">Enviaremos um link para redefinir sua senha</p>
+
+    <div id="forgot-form">
+      <div class="form-group">
+        <label class="form-label">E-mail</label>
+        <input id="forgot-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div id="forgot-error" class="auth-error"></div>
+      <button id="forgot-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Enviar Link</button>
+    </div>
+
+    <div id="forgot-success" class="auth-success" style="display:none">
+      ✅ Link enviado! Verifique seu e-mail.
+    </div>
+
+    <div class="auth-links">
+      <button id="go-login-from-forgot" class="auth-link">← Voltar ao login</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- REDEFINIR SENHA (após clicar no link do e-mail)                     -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-reset-pw" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">🔒</div>
+    <h1 class="auth-title">Nova Senha</h1>
+
+    <div id="reset-form">
+      <div class="form-group">
+        <label class="form-label">Nova Senha</label>
+        <input id="reset-pw1" class="form-input" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirmar Nova Senha</label>
+        <input id="reset-pw2" class="form-input" type="password" placeholder="Repita a senha" autocomplete="new-password" />
+      </div>
+      <div id="reset-error" class="auth-error"></div>
+      <button id="reset-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Salvar Nova Senha</button>
+    </div>
+
+    <div id="reset-success" class="auth-success" style="display:none">
+      ✅ Senha alterada! Redirecionando para o login…
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- ASSINATURA                                                           -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-subscription" class="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">📊</div>
+    <h1 id="sub-title" class="auth-title">Assinatura necessária</h1>
+    <p id="sub-msg" class="auth-sub">Assine o plano para começar a controlar suas finanças.</p>
+    <div id="sub-end-date" class="auth-sub" style="display:none;color:var(--muted-fg);margin-top:-0.5rem"></div>
+
+    <!-- Card do plano -->
+    <div class="plan-card">
+      <div class="plan-name">Plano Controle Financeiro</div>
+      <div class="plan-price">R$ 9,90 <span>/mês</span></div>
+      <ul class="plan-features">
+        <li>✓ Despesas e receitas ilimitadas</li>
+        <li>✓ Cartão de crédito e faturas</li>
+        <li>✓ Recorrências e parcelamentos</li>
+        <li>✓ Metas de poupança</li>
+        <li>✓ Dados salvos na nuvem</li>
+        <li>✓ Acesso de qualquer dispositivo</li>
+      </ul>
+    </div>
+
+    <div id="sub-error" class="auth-error"></div>
+    <button id="sub-btn" class="btn btn-gold form-btn-full">Assinar — R$ 9,90/mês</button>
+
+    <!-- Área de pagamento (exibida após clicar em Assinar) -->
+    <div id="sub-payment-area" style="display:none;margin-top:1.25rem;text-align:center">
+      <p style="font-size:0.85rem;color:var(--muted-fg);margin-bottom:0.75rem">
+        Uma nova aba foi aberta com o link de pagamento.<br>
+        Após pagar, clique no botão abaixo.
+      </p>
+      <a id="sub-payment-link" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:inline-flex;margin-bottom:0.75rem;word-break:break-all">
+        Abrir link de pagamento
+      </a><br>
+      <button id="sub-check-btn" class="btn btn-outline form-btn-full">Já paguei — verificar status</button>
+    </div>
+
+    <div style="text-align:center;margin-top:1rem">
+      <button id="sub-logout-btn" class="auth-link">Sair da conta</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- HOME                                                                 -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-home" style="display:none;min-height:100dvh;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg)">
+  <div class="home-inner">
+    <div class="home-header">
+      <h1 class="home-title">Finanças</h1>
+      <p class="home-sub">Seu controle financeiro pessoal</p>
+    </div>
+
+    <button id="home-go-quick" class="home-card">
+      <div class="home-card-icon gold">+</div>
+      <div>
+        <div class="home-card-title">Lançar Gasto</div>
+        <div class="home-card-sub">Registrar gasto rápido</div>
+      </div>
+    </button>
+
+    <button id="home-go-dashboard" class="home-card">
+      <div class="home-card-icon gray">▦</div>
+      <div>
+        <div class="home-card-title">Painel Financeiro</div>
+        <div class="home-card-sub">Visão completa das finanças</div>
+      </div>
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- DASHBOARD                                                            -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-dashboard" style="display:none;flex-direction:column;height:100dvh;background:var(--bg)">
+
+  <!-- Sticky header -->
+  <header class="dash-header">
+    <div class="dash-header-inner">
+      <div style="display:flex;align-items:center;gap:1rem">
+        <button id="btn-back-home" class="btn-back">← Início</button>
+        <span class="dash-title">Painel Financeiro</span>
+      </div>
+      <div class="dash-header-actions">
+        <button id="btn-import" class="dash-header-btn" title="Importar backup">↑ Importar</button>
+        <button id="btn-export" class="dash-header-btn" title="Exportar backup">↓ Backup</button>
+        <button id="btn-account" class="dash-header-btn" title="Minha conta">👤 Conta</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Month selector -->
+  <div class="month-bar">
+    <button id="btn-prev-month" class="month-nav-btn">◀</button>
+    <span id="month-label" class="month-label">—</span>
+    <button id="btn-next-month" class="month-nav-btn">▶</button>
+  </div>
+
+  <!-- Tab navigation -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="overview">Visão Geral</button>
+    <button class="tab-btn" data-tab="expenses">Despesas</button>
+    <button class="tab-btn" data-tab="income">Entradas</button>
+    <button class="tab-btn" data-tab="cards">Cartão</button>
+    <button class="tab-btn" data-tab="goals">Poupança</button>
+  </nav>
+
+  <div class="dashboard-scroll">
+
+  <!-- ── Visão Geral ─────────────────────────────────────────────── -->
+  <div class="tab-pane active" data-tab="overview">
+    <div class="pane-inner">
+      <div class="balance-card">
+        <div class="balance-label">Previsão do Mês</div>
+        <div id="balance-amount" class="balance-amount positive">R$ 0,00</div>
+        <div id="balance-sub" class="balance-sub">—</div>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="summary-card-label">Entradas</div><div id="sum-income" class="summary-card-value">R$ 0,00</div></div>
+        <div class="summary-card"><div class="summary-card-label">Saídas</div><div id="sum-expenses" class="summary-card-value">R$ 0,00</div></div>
+        <div class="summary-card"><div class="summary-card-label">Pago</div><div id="sum-paid" class="summary-card-value primary">R$ 0,00</div></div>
+        <div class="summary-card"><div class="summary-card-label">Pendente</div><div id="sum-pending" class="summary-card-value muted">R$ 0,00</div></div>
+      </div>
+      <div style="margin-top:1rem">
+        <button id="btn-process-payments" class="btn btn-outline form-btn-full" style="font-size:0.9rem;padding:0.75rem">⚡ Processar Pagamentos</button>
+      </div>
+      <div id="reminders-section" class="reminders-section" style="display:none;margin-top:1.25rem">
+        <div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">Atenção</div>
+        <div id="reminders-list"></div>
+      </div>
+      <div class="section-header" style="margin-top:1.5rem">
+        <div><div class="section-title">Gastos Rápidos</div><div class="section-sub">Lançamentos sem categorização</div></div>
+        <button id="btn-add-quick" class="btn btn-outline-primary btn-sm">+ Novo</button>
+      </div>
+      <div id="quick-list" class="quick-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Despesas ──────────────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="expenses">
+    <div class="pane-inner">
+      <div class="section-header">
+        <div><div class="section-title">Suas Contas</div></div>
+        <button id="btn-add-expense" class="btn btn-outline-primary btn-sm">+ Nova Despesa</button>
+      </div>
+      <div class="expense-bar">
+        <div class="exp-bar-item"><div class="exp-bar-label">Total</div><div id="exp-total" class="exp-bar-value">R$ 0,00</div></div>
+        <div class="exp-bar-item"><div class="exp-bar-label">Pago</div><div id="exp-paid2" class="exp-bar-value primary">R$ 0,00</div></div>
+        <div class="exp-bar-item"><div class="exp-bar-label">Pendente</div><div id="exp-pend2" class="exp-bar-value destructive">R$ 0,00</div></div>
+      </div>
+      <div class="filter-row">
+        <button class="filter-pill active" data-expfilter="all">Todas</button>
+        <button class="filter-pill" data-expfilter="pending">Pendentes</button>
+        <button class="filter-pill" data-expfilter="paid">Pagas</button>
+        <button class="filter-pill" data-expfilter="late">Vencidas</button>
+      </div>
+      <div id="expenses-list" class="tx-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Entradas ───────────────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="income">
+    <div class="pane-inner">
+      <div class="section-header">
+        <div class="section-title">Entradas no Mês</div>
+        <div style="display:flex;gap:0.5rem">
+          <button id="btn-add-income-2" class="btn btn-outline btn-sm">+ Recorrente</button>
+          <button id="btn-add-income" class="btn btn-gold btn-sm">+ Nova Entrada</button>
+        </div>
+      </div>
+      <div class="income-bar">
+        <div class="income-bar-item"><div class="ib-label">Total Esperado</div><div id="inc-total" class="ib-value primary">R$ 0,00</div></div>
+        <div class="income-bar-item"><div class="ib-label">Recebido</div><div id="inc-received" class="ib-value">R$ 0,00</div></div>
+      </div>
+      <div class="filter-row">
+        <button class="filter-pill active" data-incfilter="all">Todas</button>
+        <button class="filter-pill" data-incfilter="received">Recebidas</button>
+        <button class="filter-pill" data-incfilter="pending">Pendentes</button>
+      </div>
+      <div id="income-list" class="tx-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Cartão ─────────────────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="cards">
+    <div class="pane-inner">
+      <div class="section-header"><div><div class="section-title">Cartão de Crédito</div><div class="section-sub">Fechamento fixo: dia 31</div></div></div>
+      <div class="balance-card" style="margin-bottom:1rem">
+        <div class="balance-label" id="card-month-label">Fatura —</div>
+        <div id="card-due-label" style="font-size:0.75rem;color:var(--muted-fg);margin-bottom:0.25rem">—</div>
+        <div id="card-total" class="balance-amount" style="color:var(--destructive)">R$ 0,00</div>
+        <div id="card-invoice-status" class="balance-sub">—</div>
+      </div>
+      <div id="card-pay-section" style="display:none;margin-bottom:1rem">
+        <button id="btn-pay-invoice" class="btn btn-gold form-btn-full">Pagar Fatura</button>
+      </div>
+      <div id="card-invoice-list" class="tx-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Poupança ───────────────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="goals">
+    <div class="pane-inner">
+      <div class="section-header">
+        <div class="section-title">Suas Metas</div>
+        <button id="btn-add-goal" class="btn btn-primary btn-sm">+ Nova Meta</button>
+      </div>
+      <div id="goals-list"></div>
+    </div>
+  </div>
+
+  </div><!-- end dashboard-scroll -->
+</div><!-- end view-dashboard -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Transação (Despesa / Entrada)                                 -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="tx-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="tx-modal-title" class="modal-title">Nova Despesa</span>
+      <button id="close-tx-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="tx-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label">Descrição</label>
+          <input id="tx-desc" class="form-input" type="text" placeholder="ex: Aluguel, Mercado…" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Valor (R$)</label>
+            <input id="tx-amount" class="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" id="tx-date-label">Data / Vencimento</label>
+            <input id="tx-duedate" class="form-input" type="date" />
+            <div id="tx-invoice-preview" style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem;display:none"></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Categoria</label>
+            <select id="tx-category" class="form-select"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Forma de Pagamento</label>
+            <select id="tx-payment" class="form-select">
+              <option value="pix">Pix</option>
+              <option value="debito">Débito</option>
+              <option value="credito">Crédito</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="transferencia">Transferência</option>
+              <option value="boleto">Boleto</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tipo</label>
+            <select id="tx-subtype" class="form-select">
+              <option value="once">Avulso</option>
+              <option value="recurring">Recorrente</option>
+              <option value="installment">Parcelado</option>
+            </select>
+          </div>
+          <div id="tx-installments-section" class="form-group" style="display:none">
+            <label class="form-label">Nº de Parcelas</label>
+            <input id="tx-installments" class="form-input" type="number" min="2" max="120" value="2" />
+          </div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:0.6rem;margin-top:0.25rem">
+          <input id="tx-paid" type="checkbox" style="width:18px;height:18px;accent-color:var(--primary)" />
+          <label for="tx-paid" class="form-label" style="margin:0;cursor:pointer">Marcar como pago/recebido</label>
+        </div>
+        <div class="form-footer">
+          <button id="tx-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Gasto Rápido                                                  -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="quick-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Gasto Rápido</span>
+      <button id="close-quick-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Previsão do mês em destaque -->
+      <div id="quick-month-preview" style="display:none;text-align:center;padding:1rem;background:var(--muted);border-radius:var(--r);margin-bottom:1.25rem">
+        <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão do Mês</div>
+        <div id="quick-month-amount" style="font-size:1.75rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Digite o gasto</label>
+        <input id="quick-input" class="form-input" type="text"
+          placeholder="ex: Combustível 50 crédito"
+          autocomplete="off" />
+        <div class="helper-note" style="margin-top:0.5rem">
+          Formato: <strong>Descrição Valor Pagamento</strong><br>
+          Ex: <em>Mercado 120 débito</em> · <em>Lanche 35 pix</em> · <em>Farmácia 80 crédito</em>
+        </div>
+      </div>
+      <div id="quick-preview" style="display:none;background:var(--muted);border-radius:var(--r-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.875rem"></div>
+      <div class="form-footer">
+        <button id="quick-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Processar Pagamentos                                           -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="process-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Processar Pagamentos</span>
+      <button id="close-process-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="process-list"></div>
+      <div class="form-footer">
+        <button id="process-confirm-btn" type="button" class="btn btn-primary form-btn-full">Confirmar Pagamentos</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Meta de Poupança                                              -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="goal-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="goal-modal-title" class="modal-title">Nova Meta</span>
+      <button id="close-goal-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="goal-form" onsubmit="return false">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Nome</label>
+            <input id="goal-name" class="form-input" type="text" placeholder="ex: Viagem, Reserva…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Emoji</label>
+            <input id="goal-emoji" class="form-input" type="text" placeholder="🎯" maxlength="2" style="font-size:1.4rem;text-align:center" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Valor Alvo (R$)</label>
+            <input id="goal-target" class="form-input" type="number" step="0.01" min="1" placeholder="10000,00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Já Guardado (R$)</label>
+            <input id="goal-saved" class="form-input" type="number" step="0.01" min="0" placeholder="0,00" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prazo (opcional)</label>
+          <input id="goal-deadline" class="form-input" type="date" />
+        </div>
+        <div class="form-footer">
+          <button id="goal-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Meta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Guardar na Meta                                               -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="addgoal-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="addgoal-modal-title" class="modal-title">Guardar Dinheiro</span>
+      <button id="close-addgoal-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="addgoal-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label">Valor a guardar (R$)</label>
+          <input id="addgoal-amount" class="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" />
+        </div>
+        <div class="form-footer">
+          <button id="addgoal-save-btn" type="button" class="btn btn-gold form-btn-full">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Minha Conta / Assinatura                                      -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="account-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Minha Conta</span>
+      <button id="close-account-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="acct-row">
+        <span class="acct-label">Nome</span>
+        <span id="acct-name" class="acct-value">—</span>
+      </div>
+      <div class="acct-row">
+        <span class="acct-label">E-mail</span>
+        <span id="acct-email" class="acct-value" style="font-size:0.85rem">—</span>
+      </div>
+      <div style="height:1px;background:var(--border);margin:1rem 0"></div>
+      <div class="acct-row">
+        <span class="acct-label">Assinatura</span>
+        <span id="acct-sub-status" class="acct-value">—</span>
+      </div>
+      <div id="acct-sub-end" class="acct-row" style="display:none">
+        <span class="acct-label"></span>
+        <span class="acct-value" style="color:var(--muted-fg);font-size:0.85rem"></span>
+      </div>
+      <div class="form-footer" style="margin-top:1.5rem">
+        <button id="acct-cancel-btn" class="btn btn-danger form-btn-full" style="display:none">Cancelar Assinatura</button>
+        <button id="acct-logout-btn" class="btn btn-outline form-btn-full">Sair da Conta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden compat -->
+<button id="btn-add-expense-2" style="display:none">add expense</button>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- CONFIRM DIALOG -->
+<div id="confirm-overlay">
+  <div class="confirm-box">
+    <div id="confirm-msg" class="confirm-msg">Tem certeza?</div>
+    <div class="confirm-actions">
+      <button id="confirm-cancel" class="btn btn-outline">Cancelar</button>
+      <button id="confirm-ok" class="btn btn-danger">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- SCRIPTS                                                              -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-client.js"></script>
+<script src="storage.js"></script>
+<script src="finance.js"></script>
+<script src="auth.js"></script>
+<script src="subscription.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
