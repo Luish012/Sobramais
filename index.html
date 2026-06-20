@@ -173,6 +173,11 @@
       </ul>
     </div>
 
+    <div class="form-group" style="text-align:left;margin-top:1rem">
+      <label class="form-label" for="sub-cpfcnpj">CPF ou CNPJ</label>
+      <input id="sub-cpfcnpj" class="form-input" type="text" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off" maxlength="18" oninput="Subscription.maskCpfCnpj(this)" />
+    </div>
+
     <div id="sub-error" class="auth-error"></div>
     <button id="sub-btn" class="btn btn-gold form-btn-full">Assinar — R$ 9,90/mês</button>
 
