@@ -55,8 +55,14 @@ const asaas = axios.create({
 // ─── CRIAR ASSINATURA ────────────────────────────────────────────────────────
 app.post('/api/subscription/create', async (req, res) => {
   console.log('[subscription/create] recebido', req.body?.email, req.body?.userId);
-  const { userId, email, name } = req.body;
-  if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios.' });
+  const { userId, email, name, cpfCnpj } = req.body;
+  if (!userId || !email || !cpfCnpj) return res.status(400).json({ error: 'userId, email e cpfCnpj são obrigatórios.' });
+
+  // Aceita apenas dígitos; valida tamanho de CPF (11) ou CNPJ (14)
+  const cpfCnpjDigits = String(cpfCnpj).replace(/\D/g, '');
+  if (cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14) {
+    return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido.' });
+  }
 
   try {
     const { data: existingSub } = await supabase
@@ -94,9 +100,19 @@ app.post('/api/subscription/create', async (req, res) => {
       const { data: customer } = await asaas.post('/customers', {
         name: name || email.split('@')[0],
         email,
+        cpfCnpj: cpfCnpjDigits,
         notificationDisabled: false,
       });
       customerId = customer.id;
+    } else {
+      // Cliente já existe no Asaas — garante que o CPF/CNPJ esteja preenchido
+      // (clientes criados antes desta correção podem não ter o campo, o que
+      // bloqueia a geração de cobrança com o erro "CPF ou CNPJ do cliente").
+      try {
+        await asaas.put(`/customers/${customerId}`, { cpfCnpj: cpfCnpjDigits });
+      } catch (e) {
+        console.warn('Não foi possível atualizar CPF/CNPJ do cliente existente:', e.response?.data || e.message);
+      }
     }
 
     // Criar assinatura
