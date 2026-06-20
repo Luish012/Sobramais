@@ -3,12 +3,12 @@
 
 const CONFIG = {
   // Supabase — obtenha em: https://supabase.com → Settings → API
-  SUPABASE_URL:      'https://SEU_PROJETO.supabase.co',
-  SUPABASE_ANON_KEY: 'sua_anon_key_aqui',
+  SUPABASE_URL:      'https://tbfrducekqikhuoeamtf.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_xaYeCBtXasLb_-9hWC4-Lg_UAllNQIs',
 
   // URL do servidor Node.js (pasta server/)
   // Em produção, aponte para o domínio onde hospedou o server.js
-  BACKEND_URL: 'http://localhost:3001',
+  BACKEND_URL: 'https://sobramais.onrender.com',
 
   // Plano de assinatura
   PLAN_NAME:  'Plano Controle Financeiro',
