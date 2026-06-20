@@ -31,13 +31,43 @@ const Subscription = {
     if (pa) pa.style.display = 'none';
   },
 
+  // ── Máscara visual para CPF/CNPJ (chamada via oninput no campo) ──────────
+  maskCpfCnpj(input) {
+    let v = input.value.replace(/\D/g, '').slice(0, 14);
+    if (v.length <= 11) {
+      // CPF: 000.000.000-00
+      v = v.replace(/(\d{3})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    } else {
+      // CNPJ: 00.000.000/0000-00
+      v = v.replace(/(\d{2})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})(\d)/, '$1/$2');
+      v = v.replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+    }
+    input.value = v;
+  },
+
   // ── Criar assinatura via backend ──────────────────────────────────────────
   async subscribe() {
     const user = Auth.currentUser;
     if (!user) return;
-    const btn   = document.getElementById('sub-btn');
-    const errEl = document.getElementById('sub-error');
+    const btn      = document.getElementById('sub-btn');
+    const errEl    = document.getElementById('sub-error');
+    const cpfEl    = document.getElementById('sub-cpfcnpj');
     if (errEl) errEl.textContent = '';
+
+    // Evita clique duplo caso o botão já esteja desabilitado/em andamento
+    if (btn?.disabled) return;
+
+    const cpfCnpj = (cpfEl?.value || '').replace(/\D/g, '');
+    if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+      if (errEl) errEl.textContent = 'Informe um CPF ou CNPJ válido.';
+      cpfEl?.focus();
+      return;
+    }
+
     if (btn) { btn.textContent = 'Aguarde...'; btn.disabled = true; }
 
     try {
@@ -45,9 +75,10 @@ const Subscription = {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: user.id,
-          email:  user.email,
-          name:   user.user_metadata?.name || user.email.split('@')[0],
+          userId:  user.id,
+          email:   user.email,
+          name:    user.user_metadata?.name || user.email.split('@')[0],
+          cpfCnpj,
         }),
       });
       const data = await res.json();
@@ -61,7 +92,7 @@ const Subscription = {
       window.open(data.paymentLink, '_blank');
       Subscription._startPolling();
     } catch (e) {
-      if (errEl) errEl.textContent = e.message;
+      if (errEl) errEl.textContent = e.message || 'Não foi possível processar sua assinatura. Tente novamente.';
     } finally {
       if (btn) { btn.textContent = 'Assinar — R$ 9,90/mês'; btn.disabled = false; }
     }
