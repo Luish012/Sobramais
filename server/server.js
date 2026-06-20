@@ -113,7 +113,7 @@ app.post('/api/subscription/create', async (req, res) => {
     // Obter link de pagamento da primeira cobrança
     let paymentLink = subscription.invoiceUrl || null;
     try {
-      const { data: payments } = await asaas.get(`/subscriptions/${subscription.id}/payments`);
+     console.log('Testando assinatura existente:', existingSub.asaas_subscription_id);
       if (payments.data?.[0]?.invoiceUrl) paymentLink = payments.data[0].invoiceUrl;
     } catch {}
 
