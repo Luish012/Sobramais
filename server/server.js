@@ -130,11 +130,22 @@ try {
     }, { onConflict: 'user_id' });
 
     res.json({ paymentLink, subscriptionId: subscription.id });
-  } catch (err) {
-    const detail = err.response?.data?.errors?.[0]?.description || err.message;
-    console.error('Erro ao criar assinatura:', detail);
-    res.status(500).json({ error: 'Erro ao criar assinatura', detail });
-  }
+ } catch (err) {
+  console.error('Erro ao criar assinatura completo:', {
+    status: err.response?.status,
+    data: err.response?.data,
+    url: err.config?.url,
+    baseURL: err.config?.baseURL,
+    method: err.config?.method,
+  });
+
+  const detail =
+    err.response?.data?.errors?.[0]?.description ||
+    err.response?.data?.message ||
+    err.message;
+
+  res.status(500).json({ error: 'Erro ao criar assinatura', detail });
+}
 });
 
 // ─── STATUS DA ASSINATURA ─────────────────────────────────────────────────────
