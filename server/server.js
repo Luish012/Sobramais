@@ -110,12 +110,14 @@ app.post('/api/subscription/create', async (req, res) => {
       description: 'Plano Controle Financeiro — R$ 9,90/mês',
     });
 
-    // Obter link de pagamento da primeira cobrança
-    let paymentLink = subscription.invoiceUrl || null;
-    try {
-     console.log('Testando assinatura existente:', existingSub.asaas_subscription_id);
-      if (payments.data?.[0]?.invoiceUrl) paymentLink = payments.data[0].invoiceUrl;
-    } catch {}
+  // Obter link de pagamento da primeira cobrança
+let paymentLink = subscription.invoiceUrl || null;
+try {
+  const { data: payments } = await asaas.get(`/subscriptions/${subscription.id}/payments`);
+  if (payments.data?.[0]?.invoiceUrl) paymentLink = payments.data[0].invoiceUrl;
+} catch (e) {
+  console.warn('Não foi possível obter cobrança da assinatura:', e.response?.status || e.message);
+}
 
     // ── RISCO-04: Usar upsert (não update) para cobrir o caso em que o
     // trigger do Supabase falhou e a linha em subscriptions não existe.
