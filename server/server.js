@@ -45,7 +45,7 @@ const supabase = createClient(
 // ─── Asaas client ─────────────────────────────────────────────────────────────
 const ASAAS_BASE = process.env.ASAAS_SANDBOX === 'true'
   ? 'https://sandbox.asaas.com/api/v3'
-  : 'https://api.asaas.com/api/v3';
+  : 'https://api.asaas.com/v3';
 
 const asaas = axios.create({
   baseURL: ASAAS_BASE,
