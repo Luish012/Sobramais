@@ -131,14 +131,17 @@ try {
 
     res.json({ paymentLink, subscriptionId: subscription.id });
  } catch (err) {
-  console.error('Erro ao criar assinatura completo:', {
+  console.error(
+  'Erro ao criar assinatura completo:',
+  JSON.stringify({
     status: err.response?.status,
     data: err.response?.data,
     url: err.config?.url,
     baseURL: err.config?.baseURL,
     method: err.config?.method,
-  });
-
+  }, null, 2)
+);
+    
   const detail =
     err.response?.data?.errors?.[0]?.description ||
     err.response?.data?.message ||
