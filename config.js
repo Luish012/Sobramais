@@ -8,7 +8,7 @@ const CONFIG = {
 
   // URL do servidor Node.js (pasta server/)
   // Em produção, aponte para o domínio onde hospedou o server.js
-  BACKEND_URL: 'https://sobramais.onrender.com',
+  BACKEND_URL: 'https://sobramais-api.onrender.com',
 
   // Plano de assinatura
   PLAN_NAME:  'Plano Controle Financeiro',
