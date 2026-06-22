@@ -135,9 +135,9 @@ try {
   console.warn('Não foi possível obter cobrança da assinatura:', e.response?.status || e.message);
 }
 
-    // ── RISCO-04: Usar upsert (não update) para cobrir o caso em que o
-    // trigger do Supabase falhou e a linha em subscriptions não existe.
-    const { data: upsertData, error: upsertError } = await supabase
+   // ── RISCO-04: Usar upsert (não update) para cobrir o caso em que o
+// trigger do Supabase falhou e a linha em subscriptions não existe.
+const { data: upsertData, error: upsertError } = await supabase
   .from('subscriptions')
   .upsert({
     user_id: userId,
@@ -154,14 +154,8 @@ if (upsertError) {
 }
 
 console.log('[subscription saved]', upsertData);
-      user_id:               userId,
-      asaas_customer_id:     customerId,
-      asaas_subscription_id: subscription.id,
-      status:                'inactive',
-      updated_at:            new Date().toISOString(),
-    }, { onConflict: 'user_id' });
 
-    res.json({ paymentLink, subscriptionId: subscription.id });
+res.json({ paymentLink, subscriptionId: subscription.id });
  } catch (err) {
   console.error(
   'Erro ao criar assinatura completo:',
