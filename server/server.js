@@ -137,7 +137,23 @@ try {
 
     // ── RISCO-04: Usar upsert (não update) para cobrir o caso em que o
     // trigger do Supabase falhou e a linha em subscriptions não existe.
-    await supabase.from('subscriptions').upsert({
+    const { data: upsertData, error: upsertError } = await supabase
+  .from('subscriptions')
+  .upsert({
+    user_id: userId,
+    asaas_customer_id: customerId,
+    asaas_subscription_id: subscription.id,
+    status: 'inactive',
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' })
+  .select();
+
+if (upsertError) {
+  console.error('[supabase upsert error]', upsertError);
+  throw upsertError;
+}
+
+console.log('[subscription saved]', upsertData);
       user_id:               userId,
       asaas_customer_id:     customerId,
       asaas_subscription_id: subscription.id,
