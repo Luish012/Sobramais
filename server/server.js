@@ -232,7 +232,12 @@ app.post('/api/asaas/webhook', async (req, res) => {
   // Sem isso, qualquer pessoa que descubra a URL pode ativar assinaturas.
   const expectedToken = process.env.ASAAS_WEBHOOK_TOKEN;
   if (expectedToken) {
-    const receivedToken = req.headers['access_token'] || req.headers['Access_Token'] || '';
+    const receivedToken =
+  req.headers['asaas-access-token'] ||
+  req.headers['access-token'] ||
+  req.headers['access_token'] ||
+  req.headers['authorization']?.replace('Bearer ', '') ||
+  '';
     if (receivedToken !== expectedToken) {
       console.warn('[webhook] Rejeitado — token inválido');
       return res.status(401).json({ error: 'Unauthorized' });
