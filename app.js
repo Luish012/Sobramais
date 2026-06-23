@@ -457,6 +457,12 @@ function saveTxForm() {
 }
 
 // ─── GASTO RÁPIDO ─────────────────────────────────────────────────────────────
+
+// Base corrigida para simulação do gasto rápido.
+// Preenchida ao abrir o modal e usada por updateQuickPreview()
+// sem recalcular a cada keystroke.
+let _quickBase = { saldo: 0, previsao: 0 };
+
 function parseQuickInput(text) {
   if (!text || !text.trim()) return null;
   const parts = text.trim().split(/\s+/);
@@ -496,14 +502,36 @@ function openQuickModal() {
   const inp = document.getElementById('quick-input');
   inp.value = '';
   document.getElementById('quick-preview').style.display = 'none';
+  document.getElementById('quick-sim-preview').style.display = 'none';
 
-  // Mostrar previsão do mês em destaque
+  // ── Passo 1: calcular base via calcSummary ──────────────────────────────
   const sum = Finance.calcSummary(State.year, State.month);
-  const prevEl = document.getElementById('quick-month-preview');
-  const amtEl  = document.getElementById('quick-month-amount');
-  if (prevEl && amtEl) {
-    amtEl.textContent = fmtCurrency(sum.previsao);
-    amtEl.style.color = sum.previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
+  const saldoCalc    = sum.totalReceived - sum.totalPaid;
+  const previsaoCalc = sum.previsao;
+
+  // ── Passo 2: somar quick expenses não-crédito do mês/ano atual ──────────
+  const allQuick = Storage.getQuickExpenses();
+  const totalQuickPrev = allQuick
+    .filter(q => {
+      if (q.paymentMethod === 'credito') return false;
+      const d = new Date(q.date + 'T00:00:00'); // evitar desvio de fuso horário
+      return d.getFullYear() === State.year && d.getMonth() === State.month;
+    })
+    .reduce((s, q) => s + (Number(q.amount) || 0), 0);
+
+  // ── Passo 3: base corrigida (Opção B) ────────────────────────────────────
+  _quickBase.saldo    = saldoCalc    - totalQuickPrev;
+  _quickBase.previsao = previsaoCalc - totalQuickPrev;
+
+  // ── Passo 4: exibir no modal ─────────────────────────────────────────────
+  const prevEl  = document.getElementById('quick-month-preview');
+  const amtEl   = document.getElementById('quick-month-amount');
+  const saldoEl = document.getElementById('quick-saldo-amount');
+  if (prevEl && amtEl && saldoEl) {
+    amtEl.textContent   = fmtCurrency(_quickBase.previsao);
+    amtEl.style.color   = _quickBase.previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
+    saldoEl.textContent = fmtCurrency(_quickBase.saldo);
+    saldoEl.style.color = _quickBase.saldo >= 0 ? 'var(--success)' : 'var(--destructive)';
     prevEl.style.display = '';
   }
 
@@ -514,11 +542,32 @@ function openQuickModal() {
 function updateQuickPreview() {
   const val     = document.getElementById('quick-input').value;
   const preview = document.getElementById('quick-preview');
+  const simEl   = document.getElementById('quick-sim-preview');
   const parsed  = parseQuickInput(val);
+
   if (parsed) {
+    // Preview de texto (comportamento original mantido)
     preview.style.display = '';
     preview.innerHTML = `<strong>${esc(parsed.description)}</strong> — ${fmtCurrency(parsed.amount)} — ${fmtPayment(parsed.paymentMethod)}`;
-  } else { preview.style.display = 'none'; }
+
+    // Simulação usando base corrigida (Opção B — inclui quick expenses anteriores)
+    const isCredito    = parsed.paymentMethod === 'credito';
+    const saldoApos    = isCredito
+      ? _quickBase.saldo                   // crédito não reduz saldo disponível
+      : _quickBase.saldo - parsed.amount;  // PIX/débito/dinheiro/transferência reduzem
+    const previsaoApos = _quickBase.previsao - parsed.amount; // sempre reduz previsão
+
+    const simSaldo    = document.getElementById('quick-sim-saldo');
+    const simPrevisao = document.getElementById('quick-sim-previsao');
+    simSaldo.textContent    = fmtCurrency(saldoApos);
+    simSaldo.style.color    = saldoApos    >= 0 ? 'var(--success)' : 'var(--destructive)';
+    simPrevisao.textContent = fmtCurrency(previsaoApos);
+    simPrevisao.style.color = previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+    simEl.style.display = '';
+  } else {
+    preview.style.display = 'none';
+    simEl.style.display   = 'none';
+  }
 }
 
 function saveQuickForm() {
