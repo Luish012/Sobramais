@@ -350,9 +350,75 @@ const Finance = {
     const totalReceived = income.filter(t => t.paid).reduce((s,t) => s+t.amount, 0);
     const totalPaid     = expenses.filter(t => t.paid).reduce((s,t) => s+t.amount, 0);
     const totalPending  = expenses.filter(t => !t.paid).reduce((s,t) => s+t.amount, 0);
-    // Previsão = receitas previstas − despesas previstas (pagas ou não)
     const previsao = totalIncome - totalExpenses;
     return { totalIncome, totalExpenses, totalReceived, totalPaid, totalPending, previsao };
+  },
+
+  // ── SALDO DISPONÍVEL (apenas mês vigente) ──────────────────────────────────
+  // Fórmula: receitas recebidas − despesas pagas não-crédito
+  //          − fatura paga − gastos rápidos não-crédito do mês
+  calcSaldoDisponivel(year, month) {
+    const txs = this.getByCompetency(year, month);
+
+    const totalReceived = txs
+      .filter(t => t.type === 'income' && t.paid)
+      .reduce((s, t) => s + t.amount, 0);
+
+    const totalPaidNonCredit = txs
+      .filter(t => t.type === 'expense' && t.paid && t.paymentMethod !== 'credito')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const invoicePaid = txs
+      .filter(t => t.type === 'expense' && t.paid && t.paymentMethod === 'credito')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const quickTotal = Storage.getQuickExpenses()
+      .filter(q => {
+        if (q.paymentMethod === 'credito') return false;
+        const d = new Date(q.date + 'T00:00:00');
+        return d.getFullYear() === year && d.getMonth() === month;
+      })
+      .reduce((s, q) => s + (Number(q.amount) || 0), 0);
+
+    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal;
+  },
+
+  // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
+  // Mês atual: saldo disponível + entradas futuras − pendentes não-crédito − fatura pendente
+  // Meses passados: totalIncome − totalExpenses (fórmula original)
+  // Meses futuros: previsão do mês anterior + totalIncome − totalExpenses
+  calcPrevisao(year, month, _depth) {
+    if ((_depth || 0) > 36) return 0; // limite de segurança
+    const today = new Date();
+    const todayYear = today.getFullYear(), todayMonth = today.getMonth();
+    const isCurrentMonth = year === todayYear && month === todayMonth;
+    const isFuture = year > todayYear || (year === todayYear && month > todayMonth);
+
+    if (!isCurrentMonth && !isFuture) {
+      // Mês passado: fórmula original simples
+      const txs = this.getByCompetency(year, month);
+      const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      return inc - exp;
+    }
+
+    if (isCurrentMonth) {
+      const saldo = this.calcSaldoDisponivel(year, month);
+      const txs   = this.getByCompetency(year, month);
+      const entradasFuturas  = txs.filter(t => t.type === 'income'   && !t.paid).reduce((s, t) => s + t.amount, 0);
+      const despesasPendentes = txs.filter(t => t.type === 'expense'  && !t.paid && t.paymentMethod !== 'credito').reduce((s, t) => s + t.amount, 0);
+      const faturaPendente   = txs.filter(t => t.type === 'expense'  && !t.paid && t.paymentMethod === 'credito').reduce((s, t) => s + t.amount, 0);
+      return saldo + entradasFuturas - despesasPendentes - faturaPendente;
+    }
+
+    // Mês futuro: herda sobra do mês anterior
+    let pYear = year, pMonth = month - 1;
+    if (pMonth < 0) { pMonth = 11; pYear--; }
+    const prevPrevisao = this.calcPrevisao(pYear, pMonth, (_depth || 0) + 1);
+    const txs = this.getByCompetency(year, month);
+    const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+    const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+    return prevPrevisao + inc - exp;
   },
 
   getReminders() {
