@@ -509,3 +509,33 @@ a { color: inherit; text-decoration: none; }
 .confirm-box     { background: var(--card); border: 1px solid var(--border); border-radius: var(--r-2xl); padding: 2rem; max-width: 360px; width: 100%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.15); animation: slideUp 0.18s ease; }
 .confirm-msg     { font-size: 1rem; color: var(--fg); margin-bottom: 1.5rem; line-height: 1.5; }
 .confirm-actions { display: flex; gap: 0.75rem; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* QUICK EXPENSE — Simulação em tempo real                                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.quick-sim-block {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.quick-sim-item {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--r);
+  padding: 0.875rem 1rem;
+  text-align: center;
+}
+.quick-sim-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted-fg);
+  margin-bottom: 0.3rem;
+}
+.quick-sim-value {
+  font-size: 1.25rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  color: var(--fg);
+}
