@@ -44,6 +44,7 @@ const State = {
   year: _today.getFullYear(),
   month: _today.getMonth(),
   expFilter: 'all',
+  expSubFilter: 'once',
   incFilter: 'all',
   editTxId: null,
   editGoalId: null,
@@ -66,9 +67,11 @@ function showView(v) {
   if (target) target.style.display = 'flex';
 
   if (v === 'dashboard') {
-    // reset to first tab when opening dashboard
     showTab(State.tab || 'overview');
     refreshAll();
+  }
+  if (v === 'home') {
+    renderHomeAlerts();
   }
 }
 
@@ -105,14 +108,54 @@ function nextMonth() {
   refreshAll();
 }
 
+// ─── HOME ALERTS ─────────────────────────────────────────────────────────────
+function renderHomeAlerts() {
+  const alertsEl = document.getElementById('home-alerts');
+  if (!alertsEl) return;
+  const reminders = Finance.getReminders();
+  if (reminders.length === 0) {
+    alertsEl.style.display = 'none';
+    return;
+  }
+  alertsEl.style.display = '';
+  alertsEl.innerHTML =
+    `<div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">⚠ Atenção</div>` +
+    reminders.slice(0, 5).map(r => {
+      const label = r.status === 'overdue' ? 'Vencida' : r.status === 'today' ? 'Vence hoje' : 'Vence amanhã';
+      const dotColor = r.status === 'overdue' ? 'var(--destructive)' : r.status === 'today' ? 'hsl(38,92%,50%)' : 'hsl(38,80%,60%)';
+      return `<div class="reminder-row">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>
+        <span class="reminder-text">${esc(r.tx.description)}</span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${label}</span>
+        <span class="reminder-amount">${fmtCurrency(r.tx.amount)}</span>
+      </div>`;
+    }).join('');
+}
+
 // ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
 function renderOverview() {
-  const sum = Finance.calcSummary(State.year, State.month);
+  const sum     = Finance.calcSummary(State.year, State.month);
+  const previsao = Finance.calcPrevisao(State.year, State.month);
   const reminders = Finance.getReminders();
 
+  // Saldo disponível — apenas no mês vigente
+  const today = new Date();
+  const isCurrentMonth = State.year === today.getFullYear() && State.month === today.getMonth();
+  const saldoSection = document.getElementById('saldo-section');
+  if (isCurrentMonth && saldoSection) {
+    const saldo = Finance.calcSaldoDisponivel(State.year, State.month);
+    const saldoEl = document.getElementById('saldo-amount');
+    saldoEl.textContent = fmtCurrency(saldo);
+    saldoEl.className = 'balance-amount ' + (saldo >= 0 ? 'positive' : 'negative');
+    saldoSection.style.display = '';
+  } else if (saldoSection) {
+    saldoSection.style.display = 'none';
+  }
+
+  // Previsão inteligente
   const balEl = document.getElementById('balance-amount');
-  balEl.textContent = fmtCurrency(sum.previsao);
-  balEl.className = 'balance-amount ' + (sum.previsao >= 0 ? 'positive' : 'negative');
+  balEl.textContent = fmtCurrency(previsao);
+  balEl.className = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
   document.getElementById('balance-sub').textContent =
     'Entradas ' + fmtCurrency(sum.totalIncome) + ' · Saídas ' + fmtCurrency(sum.totalExpenses);
 
@@ -164,12 +207,26 @@ function renderQuickList() {
 // ─── EXPENSES TAB ────────────────────────────────────────────────────────────
 function renderExpenses() {
   let txs = Finance.getByCompetency(State.year, State.month, 'expense');
-  if (State.expFilter === 'pending') txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) !== 'overdue');
-  else if (State.expFilter === 'paid')    txs = txs.filter(t => t.paid);
-  else if (State.expFilter === 'late')    txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) === 'overdue');
-  txs.sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
 
-  const all = Finance.getByCompetency(State.year, State.month, 'expense');
+  // Excluir cartão de crédito desta aba (tem aba própria)
+  txs = txs.filter(t => t.paymentMethod !== 'credito');
+
+  // Filtro de subtipo (avulso, parcelado, recorrente)
+  if (State.expSubFilter === 'once')        txs = txs.filter(t => t.subtype === 'once');
+  else if (State.expSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
+  else if (State.expSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
+
+  // Filtro de status (pendente, pago, vencido)
+  if (State.expFilter === 'pending') txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) !== 'overdue');
+  else if (State.expFilter === 'paid')  txs = txs.filter(t => t.paid);
+  else if (State.expFilter === 'late')  txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) === 'overdue');
+
+  // Ordenar por lançamento mais recente primeiro
+  txs.sort((a, b) => (b.createdAt || '') > (a.createdAt || '') ? 1 : -1);
+
+  // Totais da aba (sem crédito)
+  const all = Finance.getByCompetency(State.year, State.month, 'expense')
+    .filter(t => t.paymentMethod !== 'credito');
   document.getElementById('exp-total').textContent  = fmtCurrency(all.reduce((s, t) => s + t.amount, 0));
   document.getElementById('exp-paid2').textContent  = fmtCurrency(all.filter(t => t.paid).reduce((s, t) => s + t.amount, 0));
   document.getElementById('exp-pend2').textContent  = fmtCurrency(all.filter(t => !t.paid).reduce((s, t) => s + t.amount, 0));
@@ -184,7 +241,8 @@ function renderIncome() {
   let txs = Finance.getByCompetency(State.year, State.month, 'income');
   if (State.incFilter === 'received') txs = txs.filter(t => t.paid);
   else if (State.incFilter === 'pending') txs = txs.filter(t => !t.paid);
-  txs.sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
+  // Ordenar por lançamento mais recente primeiro
+  txs.sort((a, b) => (b.createdAt || '') > (a.createdAt || '') ? 1 : -1);
 
   const all = Finance.getByCompetency(State.year, State.month, 'income');
   document.getElementById('inc-total').textContent    = fmtCurrency(all.reduce((s, t) => s + t.amount, 0));
@@ -504,26 +562,10 @@ function openQuickModal() {
   document.getElementById('quick-preview').style.display = 'none';
   document.getElementById('quick-sim-preview').style.display = 'none';
 
-  // ── Passo 1: calcular base via calcSummary ──────────────────────────────
-  const sum = Finance.calcSummary(State.year, State.month);
-  const saldoCalc    = sum.totalReceived - sum.totalPaid;
-  const previsaoCalc = sum.previsao;
+  // Usa os novos cálculos unificados
+  _quickBase.saldo    = Finance.calcSaldoDisponivel(State.year, State.month);
+  _quickBase.previsao = Finance.calcPrevisao(State.year, State.month);
 
-  // ── Passo 2: somar quick expenses não-crédito do mês/ano atual ──────────
-  const allQuick = Storage.getQuickExpenses();
-  const totalQuickPrev = allQuick
-    .filter(q => {
-      if (q.paymentMethod === 'credito') return false;
-      const d = new Date(q.date + 'T00:00:00'); // evitar desvio de fuso horário
-      return d.getFullYear() === State.year && d.getMonth() === State.month;
-    })
-    .reduce((s, q) => s + (Number(q.amount) || 0), 0);
-
-  // ── Passo 3: base corrigida (Opção B) ────────────────────────────────────
-  _quickBase.saldo    = saldoCalc    - totalQuickPrev;
-  _quickBase.previsao = previsaoCalc - totalQuickPrev;
-
-  // ── Passo 4: exibir no modal ─────────────────────────────────────────────
   const prevEl  = document.getElementById('quick-month-preview');
   const amtEl   = document.getElementById('quick-month-amount');
   const saldoEl = document.getElementById('quick-saldo-amount');
@@ -761,6 +803,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Home ────────────────────────────────────────────────────────────────────
   document.getElementById('home-go-quick').addEventListener('click', openQuickModal);
   document.getElementById('home-go-dashboard').addEventListener('click', () => showView('dashboard'));
+  document.getElementById('home-go-process').addEventListener('click', () => {
+    showView('dashboard');
+    showTab('overview');
+    setTimeout(openProcessPayments, 120);
+  });
 
   // ── Dashboard header ────────────────────────────────────────────────────────
   document.getElementById('btn-back-home').addEventListener('click', () => showView('home'));
@@ -775,6 +822,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Tabs ────────────────────────────────────────────────────────────────────
   document.querySelectorAll('.tab-btn').forEach(btn =>
     btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+
+  // ── Expense subtype filter (Avulso / Parcelado / Recorrente) ────────────────
+  document.querySelectorAll('[data-expsubtypefilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.expSubFilter = btn.dataset.expsubtypefilter;
+      document.querySelectorAll('[data-expsubtypefilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderExpenses();
+    }));
 
   // ── Expense filters ─────────────────────────────────────────────────────────
   document.querySelectorAll('[data-expfilter]').forEach(btn =>
