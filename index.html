@@ -209,11 +209,22 @@
       <p class="home-sub">Seu controle financeiro pessoal</p>
     </div>
 
+    <!-- Avisos de contas vencidas / vencendo -->
+    <div id="home-alerts" style="display:none;background:var(--card);border:1px solid hsl(38,70%,80%);border-radius:var(--r-xl);padding:0.875rem 1.25rem"></div>
+
     <button id="home-go-quick" class="home-card">
       <div class="home-card-icon gold">+</div>
       <div>
         <div class="home-card-title">Lançar Gasto</div>
         <div class="home-card-sub">Registrar gasto rápido</div>
+      </div>
+    </button>
+
+    <button id="home-go-process" class="home-card">
+      <div class="home-card-icon" style="background:var(--dest-dim);color:var(--destructive)">⚡</div>
+      <div>
+        <div class="home-card-title">Processar Pagamentos</div>
+        <div class="home-card-sub">Marcar contas como pagas</div>
       </div>
     </button>
 
@@ -269,6 +280,10 @@
   <div class="tab-pane active" data-tab="overview">
     <div class="pane-inner">
       <div class="balance-card">
+        <div id="saldo-section" style="display:none;width:100%;text-align:center;padding-bottom:1.25rem;margin-bottom:1.25rem;border-bottom:1px solid var(--border)">
+          <div class="balance-label">Saldo Disponível</div>
+          <div id="saldo-amount" class="balance-amount positive" style="font-size:2.25rem">R$ 0,00</div>
+        </div>
         <div class="balance-label">Previsão do Mês</div>
         <div id="balance-amount" class="balance-amount positive">R$ 0,00</div>
         <div id="balance-sub" class="balance-sub">—</div>
@@ -305,6 +320,12 @@
         <div class="exp-bar-item"><div class="exp-bar-label">Total</div><div id="exp-total" class="exp-bar-value">R$ 0,00</div></div>
         <div class="exp-bar-item"><div class="exp-bar-label">Pago</div><div id="exp-paid2" class="exp-bar-value primary">R$ 0,00</div></div>
         <div class="exp-bar-item"><div class="exp-bar-label">Pendente</div><div id="exp-pend2" class="exp-bar-value destructive">R$ 0,00</div></div>
+      </div>
+      <div class="filter-row" id="exp-subtype-row">
+        <button class="filter-pill active" data-expsubtypefilter="once">Avulsos</button>
+        <button class="filter-pill" data-expsubtypefilter="installment">Parcelados</button>
+        <button class="filter-pill" data-expsubtypefilter="recurring">Recorrentes</button>
+        <button class="filter-pill" data-expsubtypefilter="all">Todos</button>
       </div>
       <div class="filter-row">
         <button class="filter-pill active" data-expfilter="all">Todas</button>
