@@ -450,10 +450,18 @@
       <button id="close-quick-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
-      <!-- Previsão do mês em destaque -->
-      <div id="quick-month-preview" style="display:none;text-align:center;padding:1rem;background:var(--muted);border-radius:var(--r);margin-bottom:1.25rem">
-        <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão do Mês</div>
-        <div id="quick-month-amount" style="font-size:1.75rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
+      <!-- Saldo disponível e previsão em destaque -->
+      <div id="quick-month-preview" style="display:none;padding:1rem;background:var(--muted);border-radius:var(--r);margin-bottom:1.25rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;text-align:center">
+          <div>
+            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Saldo disponível</div>
+            <div id="quick-saldo-amount" style="font-size:1.4rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão</div>
+            <div id="quick-month-amount" style="font-size:1.4rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Digite o gasto</label>
@@ -466,6 +474,18 @@
         </div>
       </div>
       <div id="quick-preview" style="display:none;background:var(--muted);border-radius:var(--r-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.875rem"></div>
+      <div id="quick-sim-preview" style="display:none;margin-top:0.75rem">
+        <div class="quick-sim-block">
+          <div class="quick-sim-item">
+            <div class="quick-sim-label">Saldo após lançamento</div>
+            <div id="quick-sim-saldo" class="quick-sim-value">R$ 0,00</div>
+          </div>
+          <div class="quick-sim-item">
+            <div class="quick-sim-label">Previsão após lançamento</div>
+            <div id="quick-sim-previsao" class="quick-sim-value">R$ 0,00</div>
+          </div>
+        </div>
+      </div>
       <div class="form-footer">
         <button id="quick-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
       </div>
