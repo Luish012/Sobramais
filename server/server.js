@@ -230,6 +230,9 @@ app.post('/api/asaas/webhook', async (req, res) => {
   // Configure ASAAS_WEBHOOK_TOKEN no painel Asaas (Integrações → Webhooks)
   // e adicione o mesmo valor ao .env do servidor.
   // Sem isso, qualquer pessoa que descubra a URL pode ativar assinaturas.
+
+  // LOG TEMPORÁRIO
+console.log('[webhook headers]', req.headers);
   const expectedToken = process.env.ASAAS_WEBHOOK_TOKEN;
   if (expectedToken) {
     const receivedToken =
