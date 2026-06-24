@@ -206,11 +206,18 @@ function renderOverview() {
 }
 
 function renderQuickList() {
-  const quick = Storage.getQuickExpenses().slice(0, 15);
+  // Filtrar por mês vigente e excluir crédito (crédito vai para a fatura)
+  const quick = Storage.getQuickExpenses()
+    .filter(q => {
+      if (q.paymentMethod === 'credito') return false;
+      const d = new Date(q.date + 'T00:00:00');
+      return d.getFullYear() === State.year && d.getMonth() === State.month;
+    })
+    .slice(0, 50);
   const el = document.getElementById('quick-list');
   if (!el) return;
   if (quick.length === 0) {
-    el.innerHTML = '<p style="text-align:center;color:var(--muted-fg);font-size:0.875rem;padding:1.5rem 0">Nenhum gasto rápido ainda.<br>Use o botão acima para lançar.</p>';
+    el.innerHTML = '<p style="text-align:center;color:var(--muted-fg);font-size:0.875rem;padding:1.5rem 0">Nenhum gasto rápido neste mês.<br>Use o botão acima para lançar.</p>';
     return;
   }
   el.innerHTML = quick.map(q => `
@@ -949,8 +956,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('quick-input').addEventListener('input', updateQuickPreview);
   document.getElementById('quick-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveQuickForm(); });
 
-  // ── Process payments ────────────────────────────────────────────────────────
-  document.getElementById('btn-process-payments').addEventListener('click', openProcessPayments);
+  // ── Process payments (only on home, btn removed from dashboard) ─────────────
+  const _btnPP = document.getElementById('btn-process-payments');
+  if (_btnPP) _btnPP.addEventListener('click', openProcessPayments);
   document.getElementById('close-process-modal').addEventListener('click', () => closeModal('process-modal'));
   document.getElementById('process-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('process-modal'); });
   document.getElementById('process-confirm-btn').addEventListener('click', confirmProcessPayments);
