@@ -71,6 +71,7 @@ function showView(v) {
     refreshAll();
   }
   if (v === 'home') {
+    renderHomeBalance();
     renderHomeAlerts();
   }
 }
@@ -130,6 +131,27 @@ function renderHomeAlerts() {
         <span class="reminder-amount">${fmtCurrency(r.tx.amount)}</span>
       </div>`;
     }).join('');
+}
+
+// ─── HOME BALANCE ─────────────────────────────────────────────────────────────
+function renderHomeBalance() {
+  const balEl = document.getElementById('home-balance-card');
+  if (!balEl) return;
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+  const saldo   = Finance.calcSaldoDisponivel(y, m);
+  const previsao = Finance.calcPrevisao(y, m);
+  const saldoEl  = document.getElementById('home-saldo-amount');
+  const prevEl   = document.getElementById('home-previsao-amount');
+  if (saldoEl) {
+    saldoEl.textContent = fmtCurrency(saldo);
+    saldoEl.style.color = saldo   >= 0 ? 'var(--success)' : 'var(--destructive)';
+  }
+  if (prevEl) {
+    prevEl.textContent = fmtCurrency(previsao);
+    prevEl.style.color = previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
+  }
+  balEl.style.display = '';
 }
 
 // ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
@@ -588,34 +610,48 @@ function updateQuickPreview() {
   const parsed  = parseQuickInput(val);
 
   if (parsed) {
-    // Preview de texto (comportamento original mantido)
     preview.style.display = '';
     preview.innerHTML = `<strong>${esc(parsed.description)}</strong> — ${fmtCurrency(parsed.amount)} — ${fmtPayment(parsed.paymentMethod)}`;
 
-    // Simulação usando base corrigida
-    const isCredito = parsed.paymentMethod === 'credito';
+    const isCredito       = parsed.paymentMethod === 'credito';
+    const simSaldo        = document.getElementById('quick-sim-saldo');
+    const simPrevisao     = document.getElementById('quick-sim-previsao');
+    const previsaoItem    = document.getElementById('quick-sim-previsao-item');
+    const faturaItem      = document.getElementById('quick-sim-fatura-item');
+    const faturaLabel     = document.getElementById('quick-sim-fatura-label');
+    const simFatura       = document.getElementById('quick-sim-fatura');
 
-    const saldoApos = isCredito
-      ? _quickBase.saldo                   // crédito não reduz saldo disponível
-      : _quickBase.saldo - parsed.amount;  // PIX/débito/dinheiro/transferência reduzem saldo
+    if (isCredito) {
+      // Crédito: saldo atual não muda, previsão atual não muda
+      // Mostra o impacto real no próximo mês (fatura)
+      simSaldo.textContent = fmtCurrency(_quickBase.saldo);
+      simSaldo.style.color = 'var(--muted-fg)';
 
-    const previsaoApos = isCredito
-      ? _quickBase.previsao                // crédito não reduz previsão do mês vigente
-      : _quickBase.previsao - parsed.amount;
+      previsaoItem.style.display = 'none';
 
-    const simSaldo    = document.getElementById('quick-sim-saldo');
-    const simPrevisao = document.getElementById('quick-sim-previsao');
+      const nextMonth   = State.month === 11 ? 0 : State.month + 1;
+      const nextYear    = State.month === 11 ? State.year + 1 : State.year;
+      const nextPrevisao = Finance.calcPrevisao(nextYear, nextMonth);
+      const nextApos    = nextPrevisao - parsed.amount;
 
-    simSaldo.textContent = fmtCurrency(saldoApos);
-    simSaldo.style.color = saldoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      faturaLabel.textContent   = `Previsão ${MONTHS_PT[nextMonth]}/${nextYear} (fatura)`;
+      simFatura.textContent     = fmtCurrency(nextApos);
+      simFatura.style.color     = nextApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      faturaItem.style.display  = '';
+    } else {
+      // PIX / débito / dinheiro / transferência: reduz saldo e previsão do mês atual
+      const saldoApos    = _quickBase.saldo    - parsed.amount;
+      const previsaoApos = _quickBase.previsao - parsed.amount;
 
-    simPrevisao.textContent = isCredito
-      ? 'Impacta a próxima fatura'
-      : fmtCurrency(previsaoApos);
+      simSaldo.textContent    = fmtCurrency(saldoApos);
+      simSaldo.style.color    = saldoApos    >= 0 ? 'var(--success)' : 'var(--destructive)';
 
-    simPrevisao.style.color = isCredito
-      ? 'var(--muted-fg)'
-      : (previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)');
+      simPrevisao.textContent = fmtCurrency(previsaoApos);
+      simPrevisao.style.color = previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+
+      previsaoItem.style.display = '';
+      faturaItem.style.display   = 'none';
+    }
 
     simEl.style.display = '';
   } else {
@@ -645,37 +681,72 @@ function saveQuickForm() {
 // ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
 let _processSelectedIds = new Set();
 function openProcessPayments() {
-  const pending = Finance.getPendingForProcessing(State.year, State.month);
-  _processSelectedIds = new Set(pending.map(t => t.id));
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+
+  // Coletar entradas pendentes (RECEBER)
+  const pendingIncome = Finance.getByCompetency(y, m, 'income')
+    .filter(t => !t.paid)
+    .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
+
+  // Coletar despesas pendentes (PAGAR) — todos os meses relevantes
+  const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month);
+
+  _processSelectedIds = new Set([
+    ...pendingIncome.map(t => t.id),
+    ...pendingExpenses.map(t => t.id),
+  ]);
+
   const listEl = document.getElementById('process-list');
-  if (pending.length === 0) {
-    listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma despesa pendente em ${MONTHS_PT[State.month]}/${State.year}</div>`;
+  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0;
+
+  if (!hasAny) {
+    listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[State.month]}/${State.year} 🎉</div>`;
     document.getElementById('process-confirm-btn').style.display = 'none';
   } else {
     document.getElementById('process-confirm-btn').style.display = '';
-    listEl.innerHTML = `<p style="font-size:0.85rem;color:var(--muted-fg);margin-bottom:1rem">Selecione as despesas a marcar como pagas:</p>
-      ${pending.map(t => {
-        const isLate = getDueStatus(t.dueDate) === 'overdue';
-        return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer">
-          <input type="checkbox" checked data-process-id="${t.id}" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('${t.id}',this.checked)" />
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)}</div>
-            <div style="font-size:0.78rem;color:var(--muted-fg)">${fmtDate(t.dueDate)}${t.subtype==='installment'?` · Parcela ${t.installmentCurrent}/${t.installmentTotal}`:''}${isLate?' · <span style="color:var(--destructive)">Vencida</span>':''}</div>
-          </div>
-          <div style="font-weight:600;color:var(--destructive);white-space:nowrap">${fmtCurrency(t.amount)}</div>
-        </label>`;
-      }).join('')}`;
+
+    const renderRow = (t, colorClass) => {
+      const isLate  = getDueStatus(t.dueDate) === 'overdue';
+      const isToday = getDueStatus(t.dueDate) === 'today';
+      const badge   = isLate  ? '<span style="color:var(--destructive);font-size:0.72rem">● Vencida</span>'
+                    : isToday ? '<span style="color:hsl(38,92%,50%);font-size:0.72rem">● Hoje</span>'
+                    : '';
+      return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;border:1px solid ${isLate?'hsl(0,70%,80%)':'var(--border)'};border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:${isLate?'hsla(0,70%,55%,0.04)':'transparent'}">
+        <input type="checkbox" checked data-process-id="${t.id}" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('${t.id}',this.checked)" />
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)}</div>
+          <div style="font-size:0.78rem;color:var(--muted-fg);display:flex;gap:0.5rem;align-items:center">${fmtDate(t.dueDate)}${t.subtype==='installment'?` · Parcela ${t.installmentCurrent}/${t.installmentTotal}`:''}${badge?` · ${badge}`:''}</div>
+        </div>
+        <div style="font-weight:600;color:${colorClass};white-space:nowrap">${fmtCurrency(t.amount)}</div>
+      </label>`;
+    };
+
+    let html = '';
+
+    if (pendingIncome.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--success);margin:0.75rem 0 0.5rem">▲ Receber</div>`;
+      html += pendingIncome.map(t => renderRow(t, 'var(--success)')).join('');
+    }
+
+    if (pendingExpenses.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Pagar</div>`;
+      html += pendingExpenses.map(t => renderRow(t, 'var(--destructive)')).join('');
+    }
+
+    listEl.innerHTML = html;
   }
   openModal('process-modal');
 }
 function toggleProcessItem(id, checked) { if (checked) _processSelectedIds.add(id); else _processSelectedIds.delete(id); }
 function confirmProcessPayments() {
   const ids = Array.from(_processSelectedIds);
-  if (ids.length === 0) { showToast('Nenhuma despesa selecionada', 'error'); return; }
+  if (ids.length === 0) { showToast('Nenhum item selecionado', 'error'); return; }
   Finance.processPayments(ids);
-  showToast(`${ids.length} pagamento(s) processado(s)!`, 'success');
+  showToast(`${ids.length} item(s) processado(s)!`, 'success');
   closeModal('process-modal');
   refreshAll();
+  renderHomeBalance();
 }
 
 // ─── FATURA ───────────────────────────────────────────────────────────────────
@@ -815,9 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('home-go-quick').addEventListener('click', openQuickModal);
   document.getElementById('home-go-dashboard').addEventListener('click', () => showView('dashboard'));
   document.getElementById('home-go-process').addEventListener('click', () => {
-    showView('dashboard');
-    showTab('overview');
-    setTimeout(openProcessPayments, 120);
+    openProcessPayments();
   });
 
   // ── Dashboard header ────────────────────────────────────────────────────────
