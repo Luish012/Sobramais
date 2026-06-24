@@ -592,19 +592,31 @@ function updateQuickPreview() {
     preview.style.display = '';
     preview.innerHTML = `<strong>${esc(parsed.description)}</strong> — ${fmtCurrency(parsed.amount)} — ${fmtPayment(parsed.paymentMethod)}`;
 
-    // Simulação usando base corrigida (Opção B — inclui quick expenses anteriores)
-    const isCredito    = parsed.paymentMethod === 'credito';
-    const saldoApos    = isCredito
+    // Simulação usando base corrigida
+    const isCredito = parsed.paymentMethod === 'credito';
+
+    const saldoApos = isCredito
       ? _quickBase.saldo                   // crédito não reduz saldo disponível
-      : _quickBase.saldo - parsed.amount;  // PIX/débito/dinheiro/transferência reduzem
-    const previsaoApos = _quickBase.previsao - parsed.amount; // sempre reduz previsão
+      : _quickBase.saldo - parsed.amount;  // PIX/débito/dinheiro/transferência reduzem saldo
+
+    const previsaoApos = isCredito
+      ? _quickBase.previsao                // crédito não reduz previsão do mês vigente
+      : _quickBase.previsao - parsed.amount;
 
     const simSaldo    = document.getElementById('quick-sim-saldo');
     const simPrevisao = document.getElementById('quick-sim-previsao');
-    simSaldo.textContent    = fmtCurrency(saldoApos);
-    simSaldo.style.color    = saldoApos    >= 0 ? 'var(--success)' : 'var(--destructive)';
-    simPrevisao.textContent = fmtCurrency(previsaoApos);
-    simPrevisao.style.color = previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+
+    simSaldo.textContent = fmtCurrency(saldoApos);
+    simSaldo.style.color = saldoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+
+    simPrevisao.textContent = isCredito
+      ? 'Impacta a próxima fatura'
+      : fmtCurrency(previsaoApos);
+
+    simPrevisao.style.color = isCredito
+      ? 'var(--muted-fg)'
+      : (previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)');
+
     simEl.style.display = '';
   } else {
     preview.style.display = 'none';
@@ -630,7 +642,6 @@ function saveQuickForm() {
   closeModal('quick-modal');
   if (State.view === 'dashboard') refreshAll();
 }
-
 // ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
 let _processSelectedIds = new Set();
 function openProcessPayments() {
