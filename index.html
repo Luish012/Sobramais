@@ -209,6 +209,20 @@
       <p class="home-sub">Seu controle financeiro pessoal</p>
     </div>
 
+    <!-- Saldo disponível + Previsão do mês -->
+    <div id="home-balance-card" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--r-xl);padding:1.25rem;text-align:center;width:100%;box-sizing:border-box">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div>
+          <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted-fg);margin-bottom:0.3rem">Saldo Disponível</div>
+          <div id="home-saldo-amount" style="font-size:1.6rem;font-weight:600;letter-spacing:-0.03em">R$ 0,00</div>
+        </div>
+        <div>
+          <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão do Mês</div>
+          <div id="home-previsao-amount" style="font-size:1.6rem;font-weight:600;letter-spacing:-0.03em">R$ 0,00</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Avisos de contas vencidas / vencendo -->
     <div id="home-alerts" style="display:none;background:var(--card);border:1px solid hsl(38,70%,80%);border-radius:var(--r-xl);padding:0.875rem 1.25rem"></div>
 
@@ -223,8 +237,8 @@
     <button id="home-go-process" class="home-card">
       <div class="home-card-icon" style="background:var(--dest-dim);color:var(--destructive)">⚡</div>
       <div>
-        <div class="home-card-title">Processar Pagamentos</div>
-        <div class="home-card-sub">Marcar contas como pagas</div>
+        <div class="home-card-title">Receber / Pagar</div>
+        <div class="home-card-sub">Dar baixa em entradas e contas</div>
       </div>
     </button>
 
@@ -295,7 +309,7 @@
         <div class="summary-card"><div class="summary-card-label">Pendente</div><div id="sum-pending" class="summary-card-value muted">R$ 0,00</div></div>
       </div>
       <div style="margin-top:1rem">
-        <button id="btn-process-payments" class="btn btn-outline form-btn-full" style="font-size:0.9rem;padding:0.75rem">⚡ Processar Pagamentos</button>
+        <button id="btn-process-payments" class="btn btn-outline form-btn-full" style="font-size:0.9rem;padding:0.75rem">⚡ Receber / Pagar</button>
       </div>
       <div id="reminders-section" class="reminders-section" style="display:none;margin-top:1.25rem">
         <div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">Atenção</div>
@@ -501,9 +515,13 @@
             <div class="quick-sim-label">Saldo após lançamento</div>
             <div id="quick-sim-saldo" class="quick-sim-value">R$ 0,00</div>
           </div>
-          <div class="quick-sim-item">
+          <div class="quick-sim-item" id="quick-sim-previsao-item">
             <div class="quick-sim-label">Previsão após lançamento</div>
             <div id="quick-sim-previsao" class="quick-sim-value">R$ 0,00</div>
+          </div>
+          <div class="quick-sim-item" id="quick-sim-fatura-item" style="display:none">
+            <div class="quick-sim-label" id="quick-sim-fatura-label">Impacto na fatura</div>
+            <div id="quick-sim-fatura" class="quick-sim-value">R$ 0,00</div>
           </div>
         </div>
       </div>
@@ -515,18 +533,18 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Processar Pagamentos                                           -->
+<!-- MODAL: Receber / Pagar                                               -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="process-modal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-header">
-      <span class="modal-title">Processar Pagamentos</span>
+      <span class="modal-title">Receber / Pagar</span>
       <button id="close-process-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
       <div id="process-list"></div>
       <div class="form-footer">
-        <button id="process-confirm-btn" type="button" class="btn btn-primary form-btn-full">Confirmar Pagamentos</button>
+        <button id="process-confirm-btn" type="button" class="btn btn-primary form-btn-full">Confirmar</button>
       </div>
     </div>
   </div>
