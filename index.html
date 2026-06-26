@@ -3,9 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Finanças</title>
+  <title>SobraMais</title>
+  <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="favicon.png" />
-  <meta name="theme-color" content="#faf9f6" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="theme-color" content="#1a6b3c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="SobraMais" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -383,6 +389,12 @@
       </div>
       <div id="card-pay-section" style="display:none;margin-bottom:1rem">
         <button id="btn-pay-invoice" class="btn btn-gold form-btn-full">Pagar Fatura</button>
+      </div>
+      <div class="filter-row" id="card-subtype-row">
+        <button class="filter-pill active" data-cardsubtypefilter="once">Avulsos</button>
+        <button class="filter-pill" data-cardsubtypefilter="installment">Parcelados</button>
+        <button class="filter-pill" data-cardsubtypefilter="recurring">Recorrentes</button>
+        <button class="filter-pill" data-cardsubtypefilter="all">Todos</button>
       </div>
       <div id="card-invoice-list" class="tx-list"></div>
     </div>
