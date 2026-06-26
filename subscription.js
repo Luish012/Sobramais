@@ -5,47 +5,84 @@ const Subscription = {
 
   // ── Render da tela de assinatura ───────────────────────────────────────────
   renderView(sub) {
-    const status   = sub?.status || 'inactive';
-    const messages = {
-      inactive:  { title: 'Assinatura necessária', msg: 'Assine o plano para começar a controlar suas finanças.' },
-      past_due:  { title: 'Pagamento pendente',    msg: 'Regularize seu pagamento para continuar usando o sistema.' },
-      cancelled: { title: 'Assinatura cancelada',  msg: 'Assine novamente para recuperar o acesso.' },
-    };
-    const info = messages[status] || messages.inactive;
+    const status  = sub?.status || 'inactive';
+    const today   = new Date().toISOString().split('T')[0];
+    const isExpiredTrial = status === 'trial' && (!sub?.end_date || sub.end_date < today);
+
     const titleEl = document.getElementById('sub-title');
     const msgEl   = document.getElementById('sub-msg');
     const endEl   = document.getElementById('sub-end-date');
-    if (titleEl) titleEl.textContent = info.title;
-    if (msgEl)   msgEl.textContent   = info.msg;
-    if (endEl) {
-      if (sub?.end_date) {
-        const [y,m,d] = sub.end_date.split('-');
-        endEl.textContent = `Acesso até ${d}/${m}/${y}`;
-        endEl.style.display = '';
-      } else {
-        endEl.style.display = 'none';
+    const planEl  = document.getElementById('sub-plan-card');
+    const cpfArea = document.getElementById('sub-cpf-area');
+    const btnEl   = document.getElementById('sub-btn');
+
+    if (isExpiredTrial) {
+      if (titleEl) titleEl.textContent = 'Teste grátis encerrado';
+      if (msgEl)   msgEl.textContent   = 'Assine por apenas R$ 9,99/mês para continuar usando o SobraMais.';
+      if (endEl)   endEl.style.display = 'none';
+    } else {
+      const messages = {
+        inactive:  { title: 'Assinatura necessária',  msg: 'Assine o plano para começar a controlar suas finanças.' },
+        past_due:  { title: 'Pagamento pendente',     msg: 'Regularize seu pagamento para continuar usando o sistema.' },
+        cancelled: { title: 'Assinatura cancelada',   msg: 'Assine novamente para recuperar o acesso.' },
+      };
+      const info = messages[status] || messages.inactive;
+      if (titleEl) titleEl.textContent = info.title;
+      if (msgEl)   msgEl.textContent   = info.msg;
+      if (endEl) {
+        if (sub?.end_date) {
+          const [y,m,d] = sub.end_date.split('-');
+          endEl.textContent = `Acesso até ${d}/${m}/${y}`;
+          endEl.style.display = '';
+        } else {
+          endEl.style.display = 'none';
+        }
       }
     }
+
     // Ocultar área de pagamento
     const pa = document.getElementById('sub-payment-area');
     if (pa) pa.style.display = 'none';
+
+    // Pré-preencher CPF do cadastro (fallback: campo vazio)
+    const cpfEl = document.getElementById('sub-cpfcnpj');
+    if (cpfEl) {
+      const savedCpf = Auth.currentUser?.user_metadata?.cpf || '';
+      if (savedCpf) {
+        // Exibir com máscara
+        const d = savedCpf.replace(/\D/g, '');
+        cpfEl.value = d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        if (cpfArea) cpfArea.style.display = 'none'; // ocultar campo se já temos o CPF
+      } else {
+        if (cpfArea) cpfArea.style.display = '';
+      }
+    }
+
+    if (btnEl) btnEl.textContent = 'Assinar — R$ 9,99/mês';
   },
 
-  // ── Máscara visual para CPF/CNPJ (chamada via oninput no campo) ──────────
+  // ── Máscara visual para CPF/CNPJ ─────────────────────────────────────────
   maskCpfCnpj(input) {
     let v = input.value.replace(/\D/g, '').slice(0, 14);
     if (v.length <= 11) {
-      // CPF: 000.000.000-00
       v = v.replace(/(\d{3})(\d)/, '$1.$2');
       v = v.replace(/(\d{3})(\d)/, '$1.$2');
       v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
     } else {
-      // CNPJ: 00.000.000/0000-00
       v = v.replace(/(\d{2})(\d)/, '$1.$2');
       v = v.replace(/(\d{3})(\d)/, '$1.$2');
       v = v.replace(/(\d{3})(\d)/, '$1/$2');
       v = v.replace(/(\d{4})(\d{1,2})$/, '$1-$2');
     }
+    input.value = v;
+  },
+
+  // ── Máscara visual para CPF no cadastro ──────────────────────────────────
+  maskCpf(input) {
+    let v = input.value.replace(/\D/g, '').slice(0, 11);
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
     input.value = v;
   },
 
@@ -58,10 +95,13 @@ const Subscription = {
     const cpfEl    = document.getElementById('sub-cpfcnpj');
     if (errEl) errEl.textContent = '';
 
-    // Evita clique duplo caso o botão já esteja desabilitado/em andamento
     if (btn?.disabled) return;
 
-    const cpfCnpj = (cpfEl?.value || '').replace(/\D/g, '');
+    // Usar CPF do cadastro como fonte primária
+    const savedCpf = (user.user_metadata?.cpf || '').replace(/\D/g, '');
+    const fieldCpf = (cpfEl?.value || '').replace(/\D/g, '');
+    const cpfCnpj  = savedCpf.length === 11 ? savedCpf : fieldCpf;
+
     if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
       if (errEl) errEl.textContent = 'Informe um CPF ou CNPJ válido.';
       cpfEl?.focus();
@@ -84,7 +124,6 @@ const Subscription = {
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Erro ao gerar link de pagamento');
 
-      // Mostrar link de pagamento
       const pa = document.getElementById('sub-payment-area');
       const pl = document.getElementById('sub-payment-link');
       if (pa) pa.style.display = '';
@@ -94,7 +133,7 @@ const Subscription = {
     } catch (e) {
       if (errEl) errEl.textContent = e.message || 'Não foi possível processar sua assinatura. Tente novamente.';
     } finally {
-      if (btn) { btn.textContent = 'Assinar — R$ 9,90/mês'; btn.disabled = false; }
+      if (btn) { btn.textContent = 'Assinar — R$ 9,99/mês'; btn.disabled = false; }
     }
   },
 
@@ -135,7 +174,7 @@ const Subscription = {
     }
   },
 
-  // ── Cancelar assinatura (chamado pelo modal de conta) ────────────────────
+  // ── Cancelar assinatura ───────────────────────────────────────────────────
   async cancel() {
     const user = Auth.currentUser;
     if (!user) return;
@@ -174,18 +213,40 @@ function openAccountModal() {
 
 function _renderAccountModal(sub) {
   const status = sub?.status || 'inactive';
-  const labels = { active:'Ativa ✓', inactive:'Inativa', cancelled:'Cancelada', past_due:'Pagamento pendente' };
-  const colors = { active:'var(--success)', inactive:'var(--muted-fg)', cancelled:'var(--destructive)', past_due:'hsl(38,80%,40%)' };
-  document.getElementById('acct-sub-status').textContent  = labels[status] || status;
-  document.getElementById('acct-sub-status').style.color  = colors[status] || 'inherit';
+  const today  = new Date().toISOString().split('T')[0];
 
-  const endEl  = document.getElementById('acct-sub-end');
+  const labels = {
+    active:    'Ativa ✓',
+    inactive:  'Inativa',
+    cancelled: 'Cancelada',
+    past_due:  'Pagamento pendente',
+    trial:     sub?.end_date >= today ? `Teste grátis 🎁` : 'Teste encerrado',
+  };
+  const colors = {
+    active:    'var(--success)',
+    inactive:  'var(--muted-fg)',
+    cancelled: 'var(--destructive)',
+    past_due:  'hsl(38,80%,40%)',
+    trial:     sub?.end_date >= today ? 'hsl(220,80%,55%)' : 'var(--muted-fg)',
+  };
+  document.getElementById('acct-sub-status').textContent = labels[status] || status;
+  document.getElementById('acct-sub-status').style.color = colors[status] || 'inherit';
+
+  const endEl    = document.getElementById('acct-sub-end');
   const cancelEl = document.getElementById('acct-cancel-btn');
-  if (sub?.end_date) {
+
+  if (status === 'trial' && sub?.end_date) {
+    const [y,m,d] = sub.end_date.split('-');
+    const isActive = sub.end_date >= today;
+    endEl.textContent  = isActive ? `Teste grátis válido até ${d}/${m}/${y}` : `Teste encerrado em ${d}/${m}/${y}`;
+    endEl.style.display = '';
+  } else if (sub?.end_date) {
     const [y,m,d] = sub.end_date.split('-');
     endEl.textContent  = `Válido até ${d}/${m}/${y}`;
     endEl.style.display = '';
-  } else { endEl.style.display = 'none'; }
+  } else {
+    endEl.style.display = 'none';
+  }
 
   if (cancelEl) cancelEl.style.display = (status === 'active') ? '' : 'none';
 }
