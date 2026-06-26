@@ -6,7 +6,6 @@ const Auth = {
 
   // ── Inicializa o listener de sessão ────────────────────────────────────────
   async init() {
-    // Detectar fluxo de recovery (link de email)
     const hash = window.location.hash;
     if (hash.includes('type=recovery') || hash.includes('type=email_change')) {
       showAuthView('reset-pw');
@@ -30,10 +29,6 @@ const Auth = {
       }
     });
 
-    // CORREÇÃO CAUSA RAIZ: getSession() pode lançar se a URL do Supabase
-    // for inválida, a rede estiver offline ou o DNS não resolver.
-    // Sem try/catch aqui, a promise rejeita silenciosamente e a tela
-    // de loading nunca sai (loading infinito).
     try {
       const { data: { session } } = await db.auth.getSession();
       if (!session) showAuthView('login');
@@ -47,9 +42,23 @@ const Auth = {
     showAuthView('loading');
     try {
       await Storage.loadFromCloud(user.id);
-      const sub = await Auth._getSub(user.id);
+      let sub = await Auth._getSub(user.id);
+
+      // Se não tem assinatura, tentar iniciar trial pelo CPF
+      if (!sub || !sub.status || sub.status === 'inactive') {
+        const cpf = (user.user_metadata?.cpf || '').replace(/\D/g, '');
+        if (cpf.length === 11) {
+          await Auth._initTrial(user, cpf);
+          sub = await Auth._getSub(user.id);
+        }
+      }
+
       Auth.currentSubscription = sub;
-      if (sub && (sub.status === 'active' || sub.status === 'past_due')) {
+
+      const today = new Date().toISOString().split('T')[0];
+      const isTrialActive = sub?.status === 'trial' && sub?.end_date >= today;
+
+      if (sub && (sub.status === 'active' || sub.status === 'past_due' || isTrialActive)) {
         showView('home');
       } else {
         Subscription.renderView(sub);
@@ -58,6 +67,18 @@ const Auth = {
     } catch (e) {
       console.error('afterLogin error:', e);
       showAuthView('login');
+    }
+  },
+
+  async _initTrial(user, cpf) {
+    try {
+      await fetch(CONFIG.BACKEND_URL + '/api/trial/init', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, cpf }),
+      });
+    } catch (e) {
+      console.error('[_initTrial]', e.message);
     }
   },
 
@@ -91,6 +112,7 @@ const Auth = {
   // ── Cadastro ────────────────────────────────────────────────────────────────
   async signup() {
     const name     = document.getElementById('signup-name').value.trim();
+    const cpfRaw   = document.getElementById('signup-cpf').value.trim();
     const email    = document.getElementById('signup-email').value.trim();
     const password = document.getElementById('signup-password').value;
     const confirm  = document.getElementById('signup-confirm').value;
@@ -98,8 +120,12 @@ const Auth = {
     const errEl    = document.getElementById('signup-error');
     errEl.textContent = '';
 
-    if (!name)   { errEl.textContent = 'Informe seu nome.'; return; }
-    if (!email)  { errEl.textContent = 'Informe seu e-mail.'; return; }
+    if (!name)    { errEl.textContent = 'Informe seu nome completo.'; return; }
+
+    const cpf = cpfRaw.replace(/\D/g, '');
+    if (cpf.length !== 11) { errEl.textContent = 'CPF deve ter 11 dígitos.'; return; }
+
+    if (!email)   { errEl.textContent = 'Informe seu e-mail.'; return; }
     if (password.length < 6) { errEl.textContent = 'Senha deve ter no mínimo 6 caracteres.'; return; }
     if (password !== confirm) { errEl.textContent = 'As senhas não coincidem.'; return; }
 
@@ -108,10 +134,9 @@ const Auth = {
     try {
       const { data, error } = await db.auth.signUp({
         email, password,
-        options: { data: { name } },
+        options: { data: { name, cpf } },
       });
       if (error) throw error;
-      // Se email confirmation estiver ON, avisar
       if (data.user && !data.session) {
         showAuthView('confirm-email');
       }
@@ -176,11 +201,8 @@ const Auth = {
 
   // ── Logout ──────────────────────────────────────────────────────────────────
   async logout() {
-    // BUG-02: Limpar polling timer antes de sair para evitar que um timer
-    // de uma sessão anterior continue verificando assinatura na próxima sessão.
     clearInterval(Subscription._pollTimer);
     Subscription._pollTimer = null;
-
     Storage.clearUserCache();
     Auth.currentUser = null;
     Auth.currentSubscription = null;
