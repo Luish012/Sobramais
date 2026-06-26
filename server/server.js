@@ -120,10 +120,10 @@ app.post('/api/subscription/create', async (req, res) => {
     const { data: subscription } = await asaas.post('/subscriptions', {
       customer:    customerId,
       billingType: 'UNDEFINED',   // Aceita Pix e Cartão
-      value:       9.90,
+      value:       9.99,
       nextDueDate: today,
       cycle:       'MONTHLY',
-      description: 'Plano Controle Financeiro — R$ 9,90/mês',
+      description: 'Plano Controle Financeiro — R$ 9,99/mês',
     });
 
   // Obter link de pagamento da primeira cobrança
@@ -301,6 +301,71 @@ app.post('/api/asaas/webhook', async (req, res) => {
   }
 
   res.json({ received: true });
+});
+
+// ─── TRIAL — VERIFICAR E CRIAR ────────────────────────────────────────────────
+// Chamado pelo frontend após o primeiro login de um usuário sem assinatura.
+// Verifica se o CPF já foi utilizado em outro trial; se não, cria o trial.
+app.post('/api/trial/init', async (req, res) => {
+  const { userId, cpf } = req.body;
+  if (!userId || !cpf) return res.status(400).json({ error: 'userId e cpf são obrigatórios.' });
+
+  const cpfDigits = String(cpf).replace(/\D/g, '');
+  if (cpfDigits.length !== 11) return res.status(400).json({ error: 'CPF inválido (deve ter 11 dígitos).' });
+
+  try {
+    // Verificar se o CPF já utilizou algum trial
+    const { data: registry, error: regErr } = await supabase
+      .from('trial_registry')
+      .select('cpf')
+      .eq('cpf', cpfDigits)
+      .maybeSingle();
+
+    if (registry) {
+      // CPF já foi utilizado — não conceder novo trial
+      console.log('[trial/init] CPF já utilizado:', cpfDigits);
+      return res.json({ trial: false, reason: 'cpf_already_used' });
+    }
+
+    // CPF novo — criar trial de 7 dias
+    const start = new Date();
+    const end   = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const startStr = start.toISOString().split('T')[0];
+    const endStr   = end.toISOString().split('T')[0];
+
+    // Registrar CPF para impedir novos trials com o mesmo CPF
+    const { error: insertErr } = await supabase
+      .from('trial_registry')
+      .insert({ cpf: cpfDigits, first_user: userId });
+
+    if (insertErr) {
+      console.error('[trial/init] Erro ao inserir trial_registry:', insertErr);
+      return res.status(500).json({ error: 'Erro ao registrar trial.' });
+    }
+
+    // Criar/atualizar subscription com status trial
+    const { error: subErr } = await supabase
+      .from('subscriptions')
+      .upsert({
+        user_id:    userId,
+        status:     'trial',
+        start_date: startStr,
+        end_date:   endStr,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+
+    if (subErr) {
+      console.error('[trial/init] Erro ao criar subscription trial:', subErr);
+      return res.status(500).json({ error: 'Erro ao criar período de teste.' });
+    }
+
+    console.log('[trial/init] Trial criado para userId:', userId, 'até:', endStr);
+    return res.json({ trial: true, endDate: endStr });
+
+  } catch (err) {
+    console.error('[trial/init] Erro inesperado:', err.message);
+    return res.status(500).json({ error: 'Erro interno ao iniciar trial.' });
+  }
 });
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
