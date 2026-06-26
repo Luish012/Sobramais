@@ -72,6 +72,8 @@ function showView(v) {
     refreshAll();
   }
   if (v === 'home') {
+    renderHomeGreeting();
+    renderHomeTrial();
     renderHomeBalance();
     renderHomeAlerts();
   }
@@ -108,6 +110,70 @@ function prevMonth() {
 function nextMonth() {
   if (State.month === 11) { State.month = 0; State.year++; } else State.month++;
   refreshAll();
+}
+
+// ─── HOME GREETING ───────────────────────────────────────────────────────────
+const _FRASES = [
+  'Hoje é um ótimo dia para economizar.',
+  'Cada real bem cuidado vale muito.',
+  'Seu futuro financeiro começa hoje.',
+  'Controle hoje. Tranquilidade amanhã.',
+  'Pequenos hábitos geram grandes resultados.',
+  'Quem controla o dinheiro controla o futuro.',
+  'Organização gera liberdade.',
+  'Planejar hoje é conquistar amanhã.',
+  'Economizar é investir em você.',
+  'Grandes resultados começam com pequenas decisões.',
+  'Dinheiro controlado é dinheiro multiplicado.',
+  'A disciplina financeira é o caminho para a liberdade.',
+  'Cuide bem do que você tem e conquiste o que quer.',
+  'Um orçamento bem feito é seu maior aliado.',
+  'Cada despesa registrada é um passo para o controle.',
+  'O segredo das finanças é a consistência.',
+  'Conhecer seus gastos é o primeiro passo para prosperar.',
+  'Hoje você planta, amanhã você colhe.',
+  'Sua riqueza começa na organização do dia a dia.',
+  'Pequenas economias de hoje criam grandes sonhos amanhã.',
+];
+
+function renderHomeGreeting() {
+  const nameEl   = document.getElementById('home-greeting-name');
+  const phraseEl = document.getElementById('home-greeting-phrase');
+  if (!nameEl) return;
+
+  const hour = new Date().getHours();
+  const period = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
+
+  const fullName   = Auth.currentUser?.user_metadata?.name || '';
+  const firstName  = fullName.trim().split(/\s+/)[0] || '';
+  nameEl.textContent = firstName ? `${period}, ${firstName} 👋` : 'Olá! 👋';
+
+  if (phraseEl) {
+    const frase = _FRASES[Math.floor(Math.random() * _FRASES.length)];
+    phraseEl.textContent = frase;
+  }
+}
+
+// ─── HOME TRIAL BANNER ───────────────────────────────────────────────────────
+function renderHomeTrial() {
+  const bannerEl = document.getElementById('home-trial-banner');
+  if (!bannerEl) return;
+
+  const sub   = Auth.currentSubscription;
+  const today = new Date().toISOString().split('T')[0];
+
+  if (sub?.status === 'trial' && sub?.end_date >= today) {
+    const end    = new Date(sub.end_date + 'T00:00:00');
+    const now    = new Date();
+    now.setHours(0,0,0,0);
+    const diffMs   = end - now;
+    const diffDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    const [y,m,d]  = sub.end_date.split('-');
+    bannerEl.innerHTML = `🎁 <strong>Teste grátis</strong> · ${diffDays === 0 ? 'Termina hoje' : `Restam ${diffDays} dia${diffDays !== 1 ? 's' : ''}`} (até ${d}/${m}/${y})`;
+    bannerEl.style.display = '';
+  } else {
+    bannerEl.style.display = 'none';
+  }
 }
 
 // ─── HOME ALERTS ─────────────────────────────────────────────────────────────
