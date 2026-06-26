@@ -169,6 +169,23 @@ a { color: inherit; text-decoration: none; }
 }
 .home-sub { font-size: 0.875rem; color: var(--muted-fg); }
 
+.home-greeting-block {
+  text-align: left;
+  padding: 0.25rem 0;
+}
+.home-greeting-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin-bottom: 0.3rem;
+}
+.home-greeting-phrase {
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  font-style: italic;
+}
+
 .home-card {
   background: var(--card); border: 1px solid var(--card-border);
   padding: 2rem; border-radius: var(--r-xl); box-shadow: var(--shadow-sm);
