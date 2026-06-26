@@ -306,44 +306,52 @@ app.post('/api/asaas/webhook', async (req, res) => {
 // ─── TRIAL — VERIFICAR E CRIAR ────────────────────────────────────────────────
 // Chamado pelo frontend após o primeiro login de um usuário sem assinatura.
 // Verifica se o CPF já foi utilizado em outro trial; se não, cria o trial.
+// ATENÇÃO: requer migração SQL (trial_registry + coluna cpf em subscriptions).
 app.post('/api/trial/init', async (req, res) => {
   const { userId, cpf } = req.body;
-  if (!userId || !cpf) return res.status(400).json({ error: 'userId e cpf são obrigatórios.' });
+  if (!userId || !cpf) return res.status(400).json({ trial: false, error: 'userId e cpf são obrigatórios.' });
 
   const cpfDigits = String(cpf).replace(/\D/g, '');
-  if (cpfDigits.length !== 11) return res.status(400).json({ error: 'CPF inválido (deve ter 11 dígitos).' });
+  if (cpfDigits.length !== 11) return res.status(400).json({ trial: false, error: 'CPF inválido (deve ter 11 dígitos).' });
 
   try {
-    // Verificar se o CPF já utilizou algum trial
+    // 1. Verificar se o CPF já utilizou algum trial
     const { data: registry, error: regErr } = await supabase
       .from('trial_registry')
       .select('cpf')
       .eq('cpf', cpfDigits)
       .maybeSingle();
 
+    if (regErr) {
+      // Tabela não existe (migração não rodou) ou outro erro de infra
+      console.error('[trial/init] Erro ao consultar trial_registry:', regErr.message);
+      console.error('[trial/init] Execute a migração SQL no Supabase antes de usar o trial.');
+      return res.status(500).json({ trial: false, error: 'Configuração pendente: execute a migração SQL no Supabase.' });
+    }
+
     if (registry) {
       // CPF já foi utilizado — não conceder novo trial
-      console.log('[trial/init] CPF já utilizado:', cpfDigits);
+      console.log('[trial/init] CPF já utilizado em outro trial:', cpfDigits);
       return res.json({ trial: false, reason: 'cpf_already_used' });
     }
 
-    // CPF novo — criar trial de 7 dias
-    const start = new Date();
-    const end   = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+    // 2. CPF novo — criar trial de 7 dias
+    const start    = new Date();
+    const end      = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
     const startStr = start.toISOString().split('T')[0];
     const endStr   = end.toISOString().split('T')[0];
 
-    // Registrar CPF para impedir novos trials com o mesmo CPF
+    // 3. Registrar CPF em trial_registry (impede reuso do CPF em novos trials)
     const { error: insertErr } = await supabase
       .from('trial_registry')
       .insert({ cpf: cpfDigits, first_user: userId });
 
     if (insertErr) {
-      console.error('[trial/init] Erro ao inserir trial_registry:', insertErr);
-      return res.status(500).json({ error: 'Erro ao registrar trial.' });
+      console.error('[trial/init] Erro ao inserir trial_registry:', insertErr.message);
+      return res.status(500).json({ trial: false, error: 'Erro ao registrar trial.' });
     }
 
-    // Criar/atualizar subscription com status trial
+    // 4. Criar/atualizar subscription com status trial (inclui coluna cpf)
     const { error: subErr } = await supabase
       .from('subscriptions')
       .upsert({
@@ -351,20 +359,23 @@ app.post('/api/trial/init', async (req, res) => {
         status:     'trial',
         start_date: startStr,
         end_date:   endStr,
+        cpf:        cpfDigits,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
     if (subErr) {
-      console.error('[trial/init] Erro ao criar subscription trial:', subErr);
-      return res.status(500).json({ error: 'Erro ao criar período de teste.' });
+      console.error('[trial/init] Erro ao criar subscription trial:', subErr.message);
+      // Reverter registro no trial_registry para não bloquear o CPF inutilmente
+      await supabase.from('trial_registry').delete().eq('cpf', cpfDigits);
+      return res.status(500).json({ trial: false, error: 'Erro ao criar período de teste.' });
     }
 
-    console.log('[trial/init] Trial criado para userId:', userId, 'até:', endStr);
+    console.log('[trial/init] Trial criado — userId:', userId, '| CPF:', cpfDigits, '| até:', endStr);
     return res.json({ trial: true, endDate: endStr });
 
   } catch (err) {
     console.error('[trial/init] Erro inesperado:', err.message);
-    return res.status(500).json({ error: 'Erro interno ao iniciar trial.' });
+    return res.status(500).json({ trial: false, error: 'Erro interno ao iniciar trial.' });
   }
 });
 
