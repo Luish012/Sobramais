@@ -44,12 +44,16 @@ const Auth = {
       await Storage.loadFromCloud(user.id);
       let sub = await Auth._getSub(user.id);
 
-      // Se não tem assinatura, tentar iniciar trial pelo CPF
+      // Se não tem assinatura ativa, tentar iniciar trial pelo CPF
       if (!sub || !sub.status || sub.status === 'inactive') {
         const cpf = (user.user_metadata?.cpf || '').replace(/\D/g, '');
         if (cpf.length === 11) {
-          await Auth._initTrial(user, cpf);
-          sub = await Auth._getSub(user.id);
+          const trialResult = await Auth._initTrial(user, cpf);
+          if (trialResult?.trial === true) {
+            // Trial criado com sucesso — re-buscar subscription atualizada
+            sub = await Auth._getSub(user.id);
+          }
+          // Se trial === false (CPF já usado ou erro), sub mantém inactive → pagamento
         }
       }
 
@@ -65,20 +69,28 @@ const Auth = {
         showAuthView('subscription');
       }
     } catch (e) {
-      console.error('afterLogin error:', e);
+      console.error('[afterLogin] erro:', e);
       showAuthView('login');
     }
   },
 
   async _initTrial(user, cpf) {
     try {
-      await fetch(CONFIG.BACKEND_URL + '/api/trial/init', {
+      const res  = await fetch(CONFIG.BACKEND_URL + '/api/trial/init', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, cpf }),
       });
+      // Parsear resposta sempre (sucesso ou erro HTTP)
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('[_initTrial] erro backend HTTP ' + res.status + ':', data.error || '');
+        return { trial: false };
+      }
+      return data; // { trial: true|false, endDate?, reason? }
     } catch (e) {
-      console.error('[_initTrial]', e.message);
+      console.error('[_initTrial] erro de rede:', e.message);
+      return { trial: false };
     }
   },
 
