@@ -46,6 +46,7 @@ const State = {
   expFilter: 'all',
   expSubFilter: 'once',
   incFilter: 'all',
+  cardSubFilter: 'once',
   editTxId: null,
   editGoalId: null,
 };
@@ -234,6 +235,21 @@ function renderQuickList() {
 }
 
 // ─── EXPENSES TAB ────────────────────────────────────────────────────────────
+function quickExpenseRow(q) {
+  return `<div class="tx-row is-paid">
+    <div class="tx-header-row">
+      <div class="tx-icon paid">✓</div>
+      <div class="tx-desc">${esc(q.description)}</div>
+      <div class="tx-amount paid">${fmtCurrency(Number(q.amount))}</div>
+    </div>
+    <div class="tx-date-line">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)}</div>
+    <div class="tx-badges"><span class="tag">Avulso</span></div>
+    <div class="tx-actions">
+      <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
+    </div>
+  </div>`;
+}
+
 function renderExpenses() {
   let txs = Finance.getByCompetency(State.year, State.month, 'expense');
 
@@ -241,7 +257,7 @@ function renderExpenses() {
   txs = txs.filter(t => t.paymentMethod !== 'credito');
 
   // Filtro de subtipo (avulso, parcelado, recorrente)
-  if (State.expSubFilter === 'once')        txs = txs.filter(t => t.subtype === 'once');
+  if (State.expSubFilter === 'once')             txs = txs.filter(t => t.subtype === 'once');
   else if (State.expSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
   else if (State.expSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
 
@@ -250,19 +266,63 @@ function renderExpenses() {
   else if (State.expFilter === 'paid')  txs = txs.filter(t => t.paid);
   else if (State.expFilter === 'late')  txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) === 'overdue');
 
-  // Ordenar por lançamento mais recente primeiro
-  txs.sort((a, b) => (b.createdAt || '') > (a.createdAt || '') ? 1 : -1);
+  // Gastos rápidos não-crédito: aparecem em Avulsos (todos os filtros de status mostram pago)
+  let quickRows = '';
+  if (State.expSubFilter === 'once' || State.expSubFilter === 'all') {
+    const quickItems = Storage.getQuickExpenses()
+      .filter(q => {
+        if (q.paymentMethod === 'credito') return false;
+        const d = new Date(q.date + 'T00:00:00');
+        return d.getFullYear() === State.year && d.getMonth() === State.month;
+      });
 
-  // Totais da aba (sem crédito)
-  const all = Finance.getByCompetency(State.year, State.month, 'expense')
+    // Filtro de status aplicado: gastos rápidos são sempre pagos
+    const statusFilter = State.expFilter;
+    const filteredQuick = statusFilter === 'pending' || statusFilter === 'late'
+      ? [] // rápidos são pagos; nunca aparecem em pendente/vencido
+      : quickItems;
+
+    // Ordenar: mais recente primeiro
+    filteredQuick.sort((a, b) => {
+      const da = a.createdAt || a.date || '';
+      const db = b.createdAt || b.date || '';
+      return db > da ? 1 : -1;
+    });
+
+    quickRows = filteredQuick.map(q => quickExpenseRow(q)).join('');
+  }
+
+  // Ordenar transactions: mais recente primeiro
+  txs.sort((a, b) => {
+    const da = a.createdAt || a.dueDate || '';
+    const db = b.createdAt || b.dueDate || '';
+    return db > da ? 1 : -1;
+  });
+
+  // Totais da aba (sem crédito) — inclui gastos rápidos
+  const allTxs = Finance.getByCompetency(State.year, State.month, 'expense')
     .filter(t => t.paymentMethod !== 'credito');
-  document.getElementById('exp-total').textContent  = fmtCurrency(all.reduce((s, t) => s + t.amount, 0));
-  document.getElementById('exp-paid2').textContent  = fmtCurrency(all.filter(t => t.paid).reduce((s, t) => s + t.amount, 0));
-  document.getElementById('exp-pend2').textContent  = fmtCurrency(all.filter(t => !t.paid).reduce((s, t) => s + t.amount, 0));
+  const allQuick = Storage.getQuickExpenses().filter(q => {
+    if (q.paymentMethod === 'credito') return false;
+    const d = new Date(q.date + 'T00:00:00');
+    return d.getFullYear() === State.year && d.getMonth() === State.month;
+  });
+  const totalAll  = allTxs.reduce((s, t) => s + t.amount, 0)
+                  + allQuick.reduce((s, q) => s + Number(q.amount), 0);
+  const totalPaid = allTxs.filter(t => t.paid).reduce((s, t) => s + t.amount, 0)
+                  + allQuick.reduce((s, q) => s + Number(q.amount), 0);
+  const totalPend = allTxs.filter(t => !t.paid).reduce((s, t) => s + t.amount, 0);
 
-  document.getElementById('expenses-list').innerHTML = txs.length === 0
+  document.getElementById('exp-total').textContent  = fmtCurrency(totalAll);
+  document.getElementById('exp-paid2').textContent  = fmtCurrency(totalPaid);
+  document.getElementById('exp-pend2').textContent  = fmtCurrency(totalPend);
+
+  const txsHtml = txs.map(t => txRow(t)).join('');
+  const combined = txsHtml + quickRows;
+
+  document.getElementById('expenses-list').innerHTML = combined.length === 0
     ? emptyState('🧾', 'Nenhuma despesa', 'Sem despesas para este período.')
-    : txs.map(t => txRow(t)).join('');
+    : combined;
 }
 
 // ─── INCOME TAB ──────────────────────────────────────────────────────────────
@@ -303,12 +363,23 @@ function renderCardTab() {
     paySection.style.display = '';
   }
 
+  // Filtro de subtipo do cartão
+  let txs = [...inv.transactions];
+  if (State.cardSubFilter === 'once')            txs = txs.filter(t => t.subtype === 'once');
+  else if (State.cardSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
+  else if (State.cardSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
+
+  // Ordenar: mais recente primeiro (createdAt > purchaseDate > dueDate)
+  txs.sort((a, b) => {
+    const da = a.createdAt || a.purchaseDate || a.dueDate || '';
+    const db = b.createdAt || b.purchaseDate || b.dueDate || '';
+    return db > da ? 1 : -1;
+  });
+
   const listEl = document.getElementById('card-invoice-list');
-  listEl.innerHTML = inv.transactions.length === 0
-    ? emptyState('💳', 'Fatura vazia', 'Compras em crédito aparecerão aqui.')
-    : inv.transactions
-        .sort((a, b) => (a.purchaseDate || a.dueDate) > (b.purchaseDate || b.dueDate) ? 1 : -1)
-        .map(t => txRow(t, t.purchaseDate ? fmtDate(t.purchaseDate) : null)).join('');
+  listEl.innerHTML = txs.length === 0
+    ? emptyState('💳', 'Fatura vazia', 'Compras nesta categoria aparecerão aqui.')
+    : txs.map(t => txRow(t, t.purchaseDate ? fmtDate(t.purchaseDate) : null)).join('');
 }
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────────────
@@ -924,6 +995,14 @@ document.addEventListener('DOMContentLoaded', () => {
       State.expFilter = btn.dataset.expfilter;
       document.querySelectorAll('[data-expfilter]').forEach(b => b.classList.toggle('active', b === btn));
       renderExpenses();
+    }));
+
+  // ── Card subtype filter (Avulso / Parcelado / Recorrente) ───────────────────
+  document.querySelectorAll('[data-cardsubtypefilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.cardSubFilter = btn.dataset.cardsubtypefilter;
+      document.querySelectorAll('[data-cardsubtypefilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderCardTab();
     }));
 
   // ── Income filters ──────────────────────────────────────────────────────────
