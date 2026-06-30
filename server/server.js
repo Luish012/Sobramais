@@ -9,6 +9,8 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 
 // ─── CORS ──────────────────────────────────────────────────────────────────
+// Lista de origens permitidas (Netlify + dev local). FRONTEND_URL pode ser
+// usada para adicionar mais um domínio via variável de ambiente no Render.
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://sobramais.netlify.app',
@@ -18,6 +20,7 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin(origin, callback) {
+    // Requisições sem origin (ex: curl, server-to-server) são permitidas
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
@@ -55,6 +58,7 @@ app.post('/api/subscription/create', async (req, res) => {
   const { userId, email, name, cpfCnpj } = req.body;
   if (!userId || !email || !cpfCnpj) return res.status(400).json({ error: 'userId, email e cpfCnpj são obrigatórios.' });
 
+  // Aceita apenas dígitos; valida tamanho de CPF (11) ou CNPJ (14)
   const cpfCnpjDigits = String(cpfCnpj).replace(/\D/g, '');
   if (cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14) {
     return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido.' });
@@ -64,11 +68,15 @@ app.post('/api/subscription/create', async (req, res) => {
     const { data: existingSub } = await supabase
       .from('subscriptions').select('*').eq('user_id', userId).single();
 
+    // ── BUG-03: Impedir criação duplicada de assinatura no Asaas ──────────────
+    // Se já existe um asaas_subscription_id, NÃO criar nova assinatura.
+    // Retornar o link de pagamento da cobrança pendente existente.
     if (existingSub?.asaas_subscription_id) {
       try {
         const { data: payments } = await asaas.get(
           `/subscriptions/${existingSub.asaas_subscription_id}/payments`
         );
+        // Procura cobrança pendente; senão retorna a mais recente
         const pending = payments.data?.find(p => p.status === 'PENDING')
                      || payments.data?.[0];
         if (pending?.invoiceUrl) {
@@ -78,6 +86,7 @@ app.post('/api/subscription/create', async (req, res) => {
           });
         }
       } catch {
+        // Se não conseguir buscar o link, informa ao usuário
         return res.status(409).json({
           error: 'Você já possui uma assinatura em aberto. Verifique seu e-mail de cobrança.',
         });
@@ -86,6 +95,7 @@ app.post('/api/subscription/create', async (req, res) => {
 
     let customerId = existingSub?.asaas_customer_id;
 
+    // Criar cliente no Asaas se ainda não existe
     if (!customerId) {
       const { data: customer } = await asaas.post('/customers', {
         name: name || email.split('@')[0],
@@ -95,6 +105,9 @@ app.post('/api/subscription/create', async (req, res) => {
       });
       customerId = customer.id;
     } else {
+      // Cliente já existe no Asaas — garante que o CPF/CNPJ esteja preenchido
+      // (clientes criados antes desta correção podem não ter o campo, o que
+      // bloqueia a geração de cobrança com o erro "CPF ou CNPJ do cliente").
       try {
         await asaas.put(`/customers/${customerId}`, { cpfCnpj: cpfCnpjDigits });
       } catch (e) {
@@ -102,69 +115,78 @@ app.post('/api/subscription/create', async (req, res) => {
       }
     }
 
+    // Criar assinatura
     const today = new Date().toISOString().split('T')[0];
     const { data: subscription } = await asaas.post('/subscriptions', {
       customer:    customerId,
-      billingType: 'UNDEFINED',
+      billingType: 'UNDEFINED',   // Aceita Pix e Cartão
       value:       9.99,
       nextDueDate: today,
       cycle:       'MONTHLY',
       description: 'Plano Controle Financeiro — R$ 9,99/mês',
     });
 
-    let paymentLink = subscription.invoiceUrl || null;
-    try {
-      const { data: payments } = await asaas.get(`/subscriptions/${subscription.id}/payments`);
-      if (payments.data?.[0]?.invoiceUrl) paymentLink = payments.data[0].invoiceUrl;
-    } catch (e) {
-      console.warn('Não foi possível obter cobrança da assinatura:', e.response?.status || e.message);
-    }
+  // Obter link de pagamento da primeira cobrança
+let paymentLink = subscription.invoiceUrl || null;
+try {
+  const { data: payments } = await asaas.get(`/subscriptions/${subscription.id}/payments`);
+  if (payments.data?.[0]?.invoiceUrl) paymentLink = payments.data[0].invoiceUrl;
+} catch (e) {
+  console.warn('Não foi possível obter cobrança da assinatura:', e.response?.status || e.message);
+}
 
-    const { data: upsertData, error: upsertError } = await supabase
-      .from('subscriptions')
-      .upsert({
-        user_id:               userId,
-        asaas_customer_id:     customerId,
-        asaas_subscription_id: subscription.id,
-        status:                'inactive',
-        updated_at:            new Date().toISOString(),
-      }, { onConflict: 'user_id' })
-      .select();
+   // ── RISCO-04: Usar upsert (não update) para cobrir o caso em que o
+// trigger do Supabase falhou e a linha em subscriptions não existe.
+const { data: upsertData, error: upsertError } = await supabase
+  .from('subscriptions')
+  .upsert({
+    user_id: userId,
+    asaas_customer_id: customerId,
+    asaas_subscription_id: subscription.id,
+    status: 'inactive',
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' })
+  .select();
 
-    if (upsertError) {
-      console.error('[supabase upsert error]', upsertError);
-      throw upsertError;
-    }
+if (upsertError) {
+  console.error('[supabase upsert error]', upsertError);
+  throw upsertError;
+}
 
-    console.log('[subscription saved]', upsertData);
-    res.json({ paymentLink, subscriptionId: subscription.id });
+console.log('[subscription saved]', upsertData);
 
-  } catch (err) {
-    console.error(
-      'Erro ao criar assinatura completo:',
-      JSON.stringify({
-        status:  err.response?.status,
-        data:    err.response?.data,
-        url:     err.config?.url,
-        baseURL: err.config?.baseURL,
-        method:  err.config?.method,
-      }, null, 2)
-    );
-    const detail =
-      err.response?.data?.errors?.[0]?.description ||
-      err.response?.data?.message ||
-      err.message;
-    res.status(500).json({ error: 'Erro ao criar assinatura', detail });
-  }
+res.json({ paymentLink, subscriptionId: subscription.id });
+ } catch (err) {
+  console.error(
+  'Erro ao criar assinatura completo:',
+  JSON.stringify({
+    status: err.response?.status,
+    data: err.response?.data,
+    url: err.config?.url,
+    baseURL: err.config?.baseURL,
+    method: err.config?.method,
+  }, null, 2)
+);
+    
+  const detail =
+    err.response?.data?.errors?.[0]?.description ||
+    err.response?.data?.message ||
+    err.message;
+
+  res.status(500).json({ error: 'Erro ao criar assinatura', detail });
+}
 });
 
 // ─── STATUS DA ASSINATURA ─────────────────────────────────────────────────────
+// BUG-05: Adicionado try/catch — sem ele uma falha do Supabase derrubava o
+// processo Express com UnhandledPromiseRejection.
 app.get('/api/subscription/status', async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: 'userId obrigatório' });
   try {
     const { data, error } = await supabase
       .from('subscriptions').select('*').eq('user_id', userId).single();
+    // PGRST116 = "Row not found" — não é um erro fatal, retorna inactive
     if (error && error.code !== 'PGRST116') throw error;
     res.json(data || { status: 'inactive' });
   } catch (err) {
@@ -186,6 +208,7 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
     await asaas.delete(`/subscriptions/${sub.asaas_subscription_id}`);
 
+    // RISCO-04: upsert para garantir que a linha exista antes de atualizar
     await supabase.from('subscriptions').upsert({
       user_id:    userId,
       status:     'cancelled',
@@ -202,14 +225,20 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
 // ─── WEBHOOK ASAAS ───────────────────────────────────────────────────────────
 app.post('/api/asaas/webhook', async (req, res) => {
+
+  // ── RISCO-01: Autenticar o webhook com token configurável ──────────────────
+  // Configure ASAAS_WEBHOOK_TOKEN no painel Asaas (Integrações → Webhooks)
+  // e adicione o mesmo valor ao .env do servidor.
+  // Sem isso, qualquer pessoa que descubra a URL pode ativar assinaturas.
+
   const expectedToken = process.env.ASAAS_WEBHOOK_TOKEN;
   if (expectedToken) {
     const receivedToken =
-      req.headers['asaas-access-token'] ||
-      req.headers['access-token'] ||
-      req.headers['access_token'] ||
-      req.headers['authorization']?.replace('Bearer ', '') ||
-      '';
+  req.headers['asaas-access-token'] ||
+  req.headers['access-token'] ||
+  req.headers['access_token'] ||
+  req.headers['authorization']?.replace('Bearer ', '') ||
+  '';
     if (receivedToken !== expectedToken) {
       console.warn('[webhook] Rejeitado — token inválido');
       return res.status(401).json({ error: 'Unauthorized' });
@@ -223,11 +252,14 @@ app.post('/api/asaas/webhook', async (req, res) => {
   console.log(`[webhook] ${evtName}`, event.payment?.id || event.subscription?.id || '');
 
   try {
+    // Pagamento confirmado → ativar assinatura
     if (evtName === 'PAYMENT_RECEIVED' || evtName === 'PAYMENT_CONFIRMED') {
       const asaasSubId = event.payment?.subscription;
       if (asaasSubId) {
         const end = new Date();
         end.setMonth(end.getMonth() + 1);
+        // RISCO-04: upsert via asaas_subscription_id (update apenas — linha
+        // já deve existir pois o /create a cria com upsert antes do pagamento)
         await supabase.from('subscriptions').update({
           status:     'active',
           start_date: new Date().toISOString().split('T')[0],
@@ -237,6 +269,7 @@ app.post('/api/asaas/webhook', async (req, res) => {
       }
     }
 
+    // Pagamento vencido → past_due
     if (evtName === 'PAYMENT_OVERDUE') {
       const asaasSubId = event.payment?.subscription;
       if (asaasSubId) {
@@ -247,6 +280,7 @@ app.post('/api/asaas/webhook', async (req, res) => {
       }
     }
 
+    // Assinatura cancelada
     if (evtName === 'SUBSCRIPTION_CANCELLED' || evtName === 'SUBSCRIPTION_DELETED') {
       const asaasSubId = event.subscription?.id;
       if (asaasSubId) {
@@ -256,6 +290,12 @@ app.post('/api/asaas/webhook', async (req, res) => {
         }).eq('asaas_subscription_id', asaasSubId);
       }
     }
+
+    // Renovação mensal — o Asaas envia PAYMENT_RECEIVED para cada cobrança
+    // mensal com o mesmo subscription ID. O handler acima já estende end_date.
+    // RISCO-06 (auditoria): evento SUBSCRIPTION_RENEWED não existe na API Asaas;
+    // removido para evitar falsa sensação de cobertura.
+
   } catch (e) {
     console.error('[webhook-error]', e.message);
   }
@@ -264,32 +304,18 @@ app.post('/api/asaas/webhook', async (req, res) => {
 });
 
 // ─── TRIAL — VERIFICAR E CRIAR ────────────────────────────────────────────────
-// POST /api/trial/init
-// Body: { userId: string, cpf: string }
-//
-// Fluxo:
-//   1. Valida userId e CPF (somente 11 dígitos numéricos)
-//   2. Consulta trial_registry pelo CPF
-//   3. CPF inédito  → insere em trial_registry + upsert subscription como 'trial' (7 dias)
-//   4. CPF já usado → upsert subscription como 'inactive' (sem datas)
-//   5. Retorna a subscription atualizada
-//
-// Pré-requisito: rode trial-fix.sql no Supabase (cria trial_registry + cards + coluna cpf).
+// Chamado pelo frontend após o primeiro login de um usuário sem assinatura.
+// Verifica se o CPF já foi utilizado em outro trial; se não, cria o trial.
+// ATENÇÃO: requer migração SQL (trial_registry + coluna cpf em subscriptions).
 app.post('/api/trial/init', async (req, res) => {
   const { userId, cpf } = req.body;
-
-  // ── Validação de entrada ─────────────────────────────────────────────────
-  if (!userId || !cpf) {
-    return res.status(400).json({ trial: false, error: 'userId e cpf são obrigatórios.' });
-  }
+  if (!userId || !cpf) return res.status(400).json({ trial: false, error: 'userId e cpf são obrigatórios.' });
 
   const cpfDigits = String(cpf).replace(/\D/g, '');
-  if (cpfDigits.length !== 11) {
-    return res.status(400).json({ trial: false, error: 'CPF inválido — informe os 11 dígitos.' });
-  }
+  if (cpfDigits.length !== 11) return res.status(400).json({ trial: false, error: 'CPF inválido (deve ter 11 dígitos).' });
 
   try {
-    // ── 1. Consultar trial_registry ─────────────────────────────────────────
+    // 1. Verificar se o CPF já utilizou algum trial
     const { data: registry, error: regErr } = await supabase
       .from('trial_registry')
       .select('cpf')
@@ -297,83 +323,55 @@ app.post('/api/trial/init', async (req, res) => {
       .maybeSingle();
 
     if (regErr) {
+      // Tabela não existe (migração não rodou) ou outro erro de infra
       console.error('[trial/init] Erro ao consultar trial_registry:', regErr.message);
-      console.error('[trial/init] Execute trial-fix.sql no Supabase antes de usar o trial.');
-      return res.status(500).json({
-        trial: false,
-        error: 'Configuração pendente: execute o SQL de migração no Supabase.',
-      });
+      console.error('[trial/init] Execute a migração SQL no Supabase antes de usar o trial.');
+      return res.status(500).json({ trial: false, error: 'Configuração pendente: execute a migração SQL no Supabase.' });
     }
 
-    let subData;
-    const now = new Date();
-
-    if (!registry) {
-      // ── 2a. CPF inédito — conceder trial de 7 dias ─────────────────────────
-      const endDate  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const startStr = now.toISOString().split('T')[0];
-      const endStr   = endDate.toISOString().split('T')[0];
-
-      // Registrar CPF para impedir reuso
-      const { error: insertErr } = await supabase
-        .from('trial_registry')
-        .insert({ cpf: cpfDigits, first_user: userId });
-
-      if (insertErr) {
-        console.error('[trial/init] Erro ao inserir trial_registry:', insertErr.message);
-        return res.status(500).json({ trial: false, error: 'Erro ao registrar trial.' });
-      }
-
-      // Criar/atualizar subscription com status 'trial'
-      const { data: upserted, error: subErr } = await supabase
-        .from('subscriptions')
-        .upsert({
-          user_id:    userId,
-          cpf:        cpfDigits,
-          status:     'trial',
-          start_date: startStr,
-          end_date:   endStr,
-          updated_at: now.toISOString(),
-        }, { onConflict: 'user_id' })
-        .select()
-        .single();
-
-      if (subErr) {
-        console.error('[trial/init] Erro ao criar subscription trial:', subErr.message);
-        // Reverter trial_registry para não bloquear o CPF inutilmente
-        await supabase.from('trial_registry').delete().eq('cpf', cpfDigits);
-        return res.status(500).json({ trial: false, error: 'Erro ao criar período de teste.' });
-      }
-
-      subData = upserted;
-      console.log('[trial/init] Trial criado — userId:', userId, '| CPF:', cpfDigits, '| até:', endStr);
-
-    } else {
-      // ── 2b. CPF já utilizado — marcar como inactive (sem datas) ───────────
-      const { data: upserted, error: subErr } = await supabase
-        .from('subscriptions')
-        .upsert({
-          user_id:    userId,
-          cpf:        cpfDigits,
-          status:     'inactive',
-          start_date: null,
-          end_date:   null,
-          updated_at: now.toISOString(),
-        }, { onConflict: 'user_id' })
-        .select()
-        .single();
-
-      if (subErr) {
-        console.error('[trial/init] Erro ao upsert subscription inactive:', subErr.message);
-        return res.status(500).json({ trial: false, error: 'Erro ao atualizar assinatura.' });
-      }
-
-      subData = upserted;
-      console.log('[trial/init] CPF já usado — subscription inactive. userId:', userId);
+    if (registry) {
+      // CPF já foi utilizado — não conceder novo trial
+      console.log('[trial/init] CPF já utilizado em outro trial:', cpfDigits);
+      return res.json({ trial: false, reason: 'cpf_already_used' });
     }
 
-    // ── 3. Retornar a subscription completa ──────────────────────────────────
-    return res.json({ trial: subData.status === 'trial', subscription: subData });
+    // 2. CPF novo — criar trial de 7 dias
+    const start    = new Date();
+    const end      = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const startStr = start.toISOString().split('T')[0];
+    const endStr   = end.toISOString().split('T')[0];
+
+    // 3. Registrar CPF em trial_registry (impede reuso do CPF em novos trials)
+    const { error: insertErr } = await supabase
+      .from('trial_registry')
+      .insert({ cpf: cpfDigits, first_user: userId });
+
+    if (insertErr) {
+      console.error('[trial/init] Erro ao inserir trial_registry:', insertErr.message);
+      return res.status(500).json({ trial: false, error: 'Erro ao registrar trial.' });
+    }
+
+    // 4. Criar/atualizar subscription com status trial (inclui coluna cpf)
+    const { error: subErr } = await supabase
+      .from('subscriptions')
+      .upsert({
+        user_id:    userId,
+        status:     'trial',
+        start_date: startStr,
+        end_date:   endStr,
+        cpf:        cpfDigits,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+
+    if (subErr) {
+      console.error('[trial/init] Erro ao criar subscription trial:', subErr.message);
+      // Reverter registro no trial_registry para não bloquear o CPF inutilmente
+      await supabase.from('trial_registry').delete().eq('cpf', cpfDigits);
+      return res.status(500).json({ trial: false, error: 'Erro ao criar período de teste.' });
+    }
+
+    console.log('[trial/init] Trial criado — userId:', userId, '| CPF:', cpfDigits, '| até:', endStr);
+    return res.json({ trial: true, endDate: endStr });
 
   } catch (err) {
     console.error('[trial/init] Erro inesperado:', err.message);
