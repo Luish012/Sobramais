@@ -41,11 +41,7 @@ const Storage = {
   },
 
   getCards()    { return this._get('CARDS', []); },
-  setCards(d)   {
-    const prev = this.getCards();
-    this._set('CARDS', d);
-    this._syncCollection('cards', prev, d, this._cardToRow.bind(this)).catch(e => console.warn('[sync-cards]', e));
-  },
+  setCards(d)   { this._set('CARDS', d); },
 
   // ── Conversores local → banco ───────────────────────────────────────────────
   _txToRow(t) {
@@ -83,15 +79,6 @@ const Storage = {
       created_at: g.createdAt || new Date().toISOString(),
     };
   },
-  _cardToRow(c) {
-    return {
-      id: c.id, user_id: this.userId,
-      name: c.name,
-      closing_day: c.closingDay || 30,
-      due_day: c.dueDay || 8,
-      created_at: c.createdAt || new Date().toISOString(),
-    };
-  },
 
   // ── Sync incremental: upsert changed + delete removed ──────────────────────
   async _syncCollection(table, prevArr, newArr, toRow) {
@@ -119,16 +106,10 @@ const Storage = {
     this.userId = userId;
     if (typeof db === 'undefined') return;
 
-    const [
-      { data: txRows },
-      { data: quickRows },
-      { data: goalRows },
-      { data: cardRows },
-    ] = await Promise.all([
+    const [{ data: txRows }, { data: quickRows }, { data: goalRows }] = await Promise.all([
       db.from('transactions').select('*').eq('user_id', userId),
       db.from('quick_expenses').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
       db.from('goals').select('*').eq('user_id', userId),
-      db.from('cards').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
     ]);
 
     if (txRows) {
@@ -161,17 +142,6 @@ const Storage = {
         id: r.id, name: r.name, emoji: r.emoji,
         target: Number(r.target), saved: Number(r.saved),
         deadline: r.deadline, createdAt: r.created_at,
-      })));
-    }
-
-    // Carregar cartões da nuvem (tabela pode não existir ainda — ignorar erro)
-    if (cardRows && cardRows.length > 0) {
-      this._set('CARDS', cardRows.map(r => ({
-        id: r.id,
-        name: r.name,
-        closingDay: r.closing_day || 30,
-        dueDay: r.due_day || 8,
-        createdAt: r.created_at,
       })));
     }
   },

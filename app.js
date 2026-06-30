@@ -49,11 +49,10 @@ const State = {
   cardSubFilter: 'once',
   editTxId: null,
   editGoalId: null,
-  selectedCardId: null,
-  editCardId: null,
 };
 
 // ─── VIEW MANAGEMENT ─────────────────────────────────────────────────────────
+// showView — app views (home / dashboard) após autenticação
 function showView(v) {
   State.view = v;
   const allViews = [
@@ -228,6 +227,7 @@ function renderOverview() {
   const previsao = Finance.calcPrevisao(State.year, State.month);
   const reminders = Finance.getReminders();
 
+  // Saldo disponível — apenas no mês vigente
   const today = new Date();
   const isCurrentMonth = State.year === today.getFullYear() && State.month === today.getMonth();
   const saldoSection = document.getElementById('saldo-section');
@@ -241,6 +241,7 @@ function renderOverview() {
     saldoSection.style.display = 'none';
   }
 
+  // Previsão inteligente
   const balEl = document.getElementById('balance-amount');
   balEl.textContent = fmtCurrency(previsao);
   balEl.className = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
@@ -272,6 +273,7 @@ function renderOverview() {
 }
 
 function renderQuickList() {
+  // Filtrar por mês vigente e excluir crédito (crédito vai para a fatura)
   const quick = Storage.getQuickExpenses()
     .filter(q => {
       if (q.paymentMethod === 'credito') return false;
@@ -317,16 +319,20 @@ function quickExpenseRow(q) {
 function renderExpenses() {
   let txs = Finance.getByCompetency(State.year, State.month, 'expense');
 
+  // Excluir cartão de crédito desta aba (tem aba própria)
   txs = txs.filter(t => t.paymentMethod !== 'credito');
 
+  // Filtro de subtipo (avulso, parcelado, recorrente)
   if (State.expSubFilter === 'once')             txs = txs.filter(t => t.subtype === 'once');
   else if (State.expSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
   else if (State.expSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
 
+  // Filtro de status (pendente, pago, vencido)
   if (State.expFilter === 'pending') txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) !== 'overdue');
   else if (State.expFilter === 'paid')  txs = txs.filter(t => t.paid);
   else if (State.expFilter === 'late')  txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) === 'overdue');
 
+  // Gastos rápidos não-crédito: aparecem em Avulsos (todos os filtros de status mostram pago)
   let quickRows = '';
   if (State.expSubFilter === 'once' || State.expSubFilter === 'all') {
     const quickItems = Storage.getQuickExpenses()
@@ -336,11 +342,13 @@ function renderExpenses() {
         return d.getFullYear() === State.year && d.getMonth() === State.month;
       });
 
+    // Filtro de status aplicado: gastos rápidos são sempre pagos
     const statusFilter = State.expFilter;
     const filteredQuick = statusFilter === 'pending' || statusFilter === 'late'
-      ? []
+      ? [] // rápidos são pagos; nunca aparecem em pendente/vencido
       : quickItems;
 
+    // Ordenar: mais recente primeiro
     filteredQuick.sort((a, b) => {
       const da = a.createdAt || a.date || '';
       const db = b.createdAt || b.date || '';
@@ -350,12 +358,14 @@ function renderExpenses() {
     quickRows = filteredQuick.map(q => quickExpenseRow(q)).join('');
   }
 
+  // Ordenar transactions: mais recente primeiro
   txs.sort((a, b) => {
     const da = a.createdAt || a.dueDate || '';
     const db = b.createdAt || b.dueDate || '';
     return db > da ? 1 : -1;
   });
 
+  // Totais da aba (sem crédito) — inclui gastos rápidos
   const allTxs = Finance.getByCompetency(State.year, State.month, 'expense')
     .filter(t => t.paymentMethod !== 'credito');
   const allQuick = Storage.getQuickExpenses().filter(q => {
@@ -386,6 +396,7 @@ function renderIncome() {
   let txs = Finance.getByCompetency(State.year, State.month, 'income');
   if (State.incFilter === 'received') txs = txs.filter(t => t.paid);
   else if (State.incFilter === 'pending') txs = txs.filter(t => !t.paid);
+  // Ordenar por lançamento mais recente primeiro
   txs.sort((a, b) => (b.createdAt || '') > (a.createdAt || '') ? 1 : -1);
 
   const all = Finance.getByCompetency(State.year, State.month, 'income');
@@ -397,75 +408,9 @@ function renderIncome() {
     : txs.map(t => txRow(t)).join('');
 }
 
-// ─── CARTÕES — HELPERS ────────────────────────────────────────────────────────
-
-// Retorna o cartão selecionado (ou cria o padrão se não houver nenhum).
-function getSelectedCard() {
-  let cards = Storage.getCards();
-
-  // Garantir que existe pelo menos um cartão
-  if (!cards || cards.length === 0) {
-    const defaultCard = { id: 'default', name: 'Cartão de crédito', closingDay: 30, dueDay: 8 };
-    Storage.setCards([defaultCard]);
-    cards = [defaultCard];
-    State.selectedCardId = 'default';
-    Storage._set('SELECTED_CARD_ID', 'default');
-    return defaultCard;
-  }
-
-  // Verificar se o selectedCardId ainda é válido
-  if (State.selectedCardId) {
-    const found = cards.find(c => c.id === State.selectedCardId);
-    if (found) return found;
-  }
-
-  // Tentar preferência persistida
-  const storedId = Storage._get('SELECTED_CARD_ID', null);
-  if (storedId) {
-    const found = cards.find(c => c.id === storedId);
-    if (found) {
-      State.selectedCardId = storedId;
-      return found;
-    }
-  }
-
-  // Fallback: primeiro da lista
-  State.selectedCardId = cards[0].id;
-  Storage._set('SELECTED_CARD_ID', cards[0].id);
-  return cards[0];
-}
-
 // ─── CARD TAB ────────────────────────────────────────────────────────────────
 function renderCardTab() {
-  let cards = Storage.getCards();
-
-  // Criar cartão padrão automaticamente se não existir nenhum
-  if (!cards || cards.length === 0) {
-    cards = [{ id: 'default', name: 'Cartão de crédito', closingDay: 30, dueDay: 8 }];
-    Storage.setCards(cards);
-  }
-
-  // Selecionar cartão
-  if (!State.selectedCardId || !cards.find(c => c.id === State.selectedCardId)) {
-    const storedId = Storage._get('SELECTED_CARD_ID', null);
-    State.selectedCardId = (storedId && cards.find(c => c.id === storedId)) ? storedId : cards[0].id;
-    Storage._set('SELECTED_CARD_ID', State.selectedCardId);
-  }
-  const selectedCard = cards.find(c => c.id === State.selectedCardId) || cards[0];
-
-  // Popular seletor de cartão
-  const selectorEl = document.getElementById('card-selector');
-  if (selectorEl) {
-    selectorEl.innerHTML = cards.map(c =>
-      `<option value="${esc(c.id)}"${c.id === State.selectedCardId ? ' selected' : ''}>${esc(c.name)}</option>`
-    ).join('');
-  }
-
-  // Mostrar/ocultar botão de editar (só mostra quando há cartão selecionado)
-  const editBtn = document.getElementById('btn-edit-card');
-  if (editBtn) editBtn.style.display = cards.length > 0 ? '' : 'none';
-
-  const inv = Finance.getCardInvoice(State.year, State.month, selectedCard);
+  const inv = Finance.getCardInvoice(State.year, State.month);
   document.getElementById('card-month-label').textContent = inv.title;
   document.getElementById('card-total').textContent = fmtCurrency(inv.total);
   const dueLabelEl = document.getElementById('card-due-label');
@@ -484,13 +429,13 @@ function renderCardTab() {
     paySection.style.display = '';
   }
 
-  // Filtro de subtipo
+  // Filtro de subtipo do cartão
   let txs = [...inv.transactions];
   if (State.cardSubFilter === 'once')            txs = txs.filter(t => t.subtype === 'once');
   else if (State.cardSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
   else if (State.cardSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
 
-  // Ordenar: mais recente primeiro
+  // Ordenar: mais recente primeiro (createdAt > purchaseDate > dueDate)
   txs.sort((a, b) => {
     const da = a.createdAt || a.purchaseDate || a.dueDate || '';
     const db = b.createdAt || b.purchaseDate || b.dueDate || '';
@@ -501,88 +446,6 @@ function renderCardTab() {
   listEl.innerHTML = txs.length === 0
     ? emptyState('💳', 'Fatura vazia', 'Compras nesta categoria aparecerão aqui.')
     : txs.map(t => txRow(t, t.purchaseDate ? fmtDate(t.purchaseDate) : null)).join('');
-}
-
-function selectCard(id) {
-  State.selectedCardId = id;
-  Storage._set('SELECTED_CARD_ID', id);
-  renderCardTab();
-}
-
-// ─── CARD MODAL ──────────────────────────────────────────────────────────────
-function openAddCard() {
-  State.editCardId = null;
-  document.getElementById('card-form').reset();
-  document.getElementById('card-closing-day').value = 30;
-  document.getElementById('card-due-day').value = 8;
-  document.getElementById('card-modal-title').textContent = 'Novo Cartão';
-  const delBtn = document.getElementById('btn-delete-card');
-  if (delBtn) delBtn.style.display = 'none';
-  openModal('card-modal');
-}
-
-function openEditCard() {
-  const card = getSelectedCard();
-  if (!card) return;
-  State.editCardId = card.id;
-  document.getElementById('card-modal-title').textContent = 'Editar Cartão';
-  document.getElementById('card-name').value        = card.name;
-  document.getElementById('card-closing-day').value = card.closingDay || 30;
-  document.getElementById('card-due-day').value     = card.dueDay || 8;
-  const delBtn = document.getElementById('btn-delete-card');
-  if (delBtn) {
-    const cards = Storage.getCards();
-    delBtn.style.display = cards.length > 1 ? '' : 'none';
-  }
-  openModal('card-modal');
-}
-
-function saveCardForm() {
-  const name       = document.getElementById('card-name').value.trim();
-  const closingDay = parseInt(document.getElementById('card-closing-day').value, 10);
-  const dueDay     = parseInt(document.getElementById('card-due-day').value, 10);
-
-  if (!name)                           { showToast('Informe o nome do cartão', 'error'); return; }
-  if (!closingDay || closingDay < 1 || closingDay > 31) { showToast('Dia de fechamento inválido (1–31)', 'error'); return; }
-  if (!dueDay     || dueDay < 1     || dueDay > 31)     { showToast('Dia de vencimento inválido (1–31)', 'error'); return; }
-
-  let cards = Storage.getCards();
-  if (!cards || cards.length === 0) cards = [];
-
-  if (State.editCardId) {
-    const idx = cards.findIndex(c => c.id === State.editCardId);
-    if (idx !== -1) {
-      cards[idx] = { ...cards[idx], name, closingDay, dueDay };
-    }
-    showToast('Cartão atualizado', 'success');
-  } else {
-    const newCard = { id: genId(), name, closingDay, dueDay, createdAt: new Date().toISOString() };
-    cards.push(newCard);
-    State.selectedCardId = newCard.id;
-    Storage._set('SELECTED_CARD_ID', newCard.id);
-    showToast('Cartão criado', 'success');
-  }
-
-  Storage.setCards(cards);
-  closeModal('card-modal');
-  renderCardTab();
-}
-
-function deleteCurrentCard() {
-  const cards = Storage.getCards();
-  if (!cards || cards.length <= 1) {
-    showToast('Não é possível excluir o único cartão', 'error');
-    return;
-  }
-  confirmDialog('Excluir este cartão? As compras associadas permanecem salvas.', () => {
-    const newCards = cards.filter(c => c.id !== State.editCardId);
-    Storage.setCards(newCards);
-    State.selectedCardId = newCards[0].id;
-    Storage._set('SELECTED_CARD_ID', newCards[0].id);
-    closeModal('card-modal');
-    showToast('Cartão excluído', 'success');
-    renderCardTab();
-  });
 }
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────────────
@@ -754,9 +617,8 @@ function updateInvoicePreview() {
   if (!labelEl || !previewEl) return;
   if (payment === 'credito' && dateVal) {
     labelEl.textContent = 'Data da compra';
-    const card = getSelectedCard();
-    const info = getInvoiceForPurchase(dateVal, card);
-    const lbl  = invoiceLabel(info.cycleKey, card.dueDay);
+    const info = getInvoiceForPurchase(dateVal);
+    const lbl  = invoiceLabel(info.cycleKey);
     previewEl.textContent = '→ Entrará na ' + lbl.title + ' · ' + lbl.dueLabel;
     previewEl.style.display = '';
   } else {
@@ -779,13 +641,11 @@ function saveTxForm() {
   if (!amount || amount <= 0) { showToast('Informe um valor válido', 'error'); return; }
   if (!dueDate)        { showToast('Informe a data', 'error'); return; }
 
-  const selectedCard = payment === 'credito' ? getSelectedCard() : null;
-
   const base = {
     type: _txType, subtype, description: desc, amount,
     purchaseDate: payment === 'credito' ? dueDate : undefined,
     dueDate, category: cat, paymentMethod: payment,
-    cardId: payment === 'credito' ? selectedCard.id : null,
+    cardId: payment === 'credito' ? 'default' : null,
     installmentTotal: instTotal, paid,
   };
 
@@ -822,6 +682,9 @@ function saveTxForm() {
 
 // ─── GASTO RÁPIDO ─────────────────────────────────────────────────────────────
 
+// Base corrigida para simulação do gasto rápido.
+// Preenchida ao abrir o modal e usada por updateQuickPreview()
+// sem recalcular a cada keystroke.
 let _quickBase = { saldo: 0, previsao: 0 };
 
 function parseQuickInput(text) {
@@ -865,6 +728,7 @@ function openQuickModal() {
   document.getElementById('quick-preview').style.display = 'none';
   document.getElementById('quick-sim-preview').style.display = 'none';
 
+  // Usa os novos cálculos unificados
   _quickBase.saldo    = Finance.calcSaldoDisponivel(State.year, State.month);
   _quickBase.previsao = Finance.calcPrevisao(State.year, State.month);
 
@@ -902,25 +766,24 @@ function updateQuickPreview() {
     const simFatura       = document.getElementById('quick-sim-fatura');
 
     if (isCredito) {
-      // Crédito: saldo atual não muda, mostra impacto na fatura do cartão selecionado
+      // Crédito: saldo atual não muda, previsão atual não muda
+      // Mostra o impacto real no próximo mês (fatura)
       simSaldo.textContent = fmtCurrency(_quickBase.saldo);
       simSaldo.style.color = 'var(--muted-fg)';
 
       previsaoItem.style.display = 'none';
 
-      // Calcular em qual mês de fatura vai cair baseado no cartão selecionado
-      const card      = getSelectedCard();
-      const invInfo   = getInvoiceForPurchase(todayIso(), card);
-      const invY      = invInfo.year;
-      const invM      = invInfo.month;
-      const invPrevisao = Finance.calcPrevisao(invY, invM);
-      const invApos   = invPrevisao - parsed.amount;
+      const nextMonth   = State.month === 11 ? 0 : State.month + 1;
+      const nextYear    = State.month === 11 ? State.year + 1 : State.year;
+      const nextPrevisao = Finance.calcPrevisao(nextYear, nextMonth);
+      const nextApos    = nextPrevisao - parsed.amount;
 
-      faturaLabel.textContent   = `Previsão ${MONTHS_PT[invM]}/${invY} (fatura ${esc(card.name)})`;
-      simFatura.textContent     = fmtCurrency(invApos);
-      simFatura.style.color     = invApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      faturaLabel.textContent   = `Previsão ${MONTHS_PT[nextMonth]}/${nextYear} (fatura)`;
+      simFatura.textContent     = fmtCurrency(nextApos);
+      simFatura.style.color     = nextApos >= 0 ? 'var(--success)' : 'var(--destructive)';
       faturaItem.style.display  = '';
     } else {
+      // PIX / débito / dinheiro / transferência: reduz saldo e previsão do mês atual
       const saldoApos    = _quickBase.saldo    - parsed.amount;
       const previsaoApos = _quickBase.previsao - parsed.amount;
 
@@ -946,13 +809,11 @@ function saveQuickForm() {
   const parsed = parseQuickInput(val);
   if (!parsed) { showToast('Formato inválido. Ex: Mercado 120 débito', 'error'); return; }
   if (parsed.paymentMethod === 'credito') {
-    // Usar cartão selecionado e a regra de fechamento correta
-    const card = getSelectedCard();
     const purchaseDate = todayIso();
     Finance.addTransaction({
       type:'expense', subtype:'once', description:parsed.description, amount:parsed.amount,
       purchaseDate, dueDate:purchaseDate, category:'Outros',
-      paymentMethod:'credito', cardId: card.id, paid:false,
+      paymentMethod:'credito', cardId:'default', paid:false,
     });
   } else {
     Finance.addQuickExpense(parsed.description, parsed.amount, parsed.paymentMethod);
@@ -961,17 +822,18 @@ function saveQuickForm() {
   closeModal('quick-modal');
   if (State.view === 'dashboard') refreshAll();
 }
-
 // ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
 let _processSelectedIds = new Set();
 function openProcessPayments() {
   const today = new Date();
   const y = today.getFullYear(), m = today.getMonth();
 
+  // Coletar entradas pendentes (RECEBER)
   const pendingIncome = Finance.getByCompetency(y, m, 'income')
     .filter(t => !t.paid)
     .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
 
+  // Coletar despesas pendentes (PAGAR) — todos os meses relevantes
   const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month);
 
   _processSelectedIds = new Set([
@@ -1033,8 +895,7 @@ function confirmProcessPayments() {
 
 // ─── FATURA ───────────────────────────────────────────────────────────────────
 function payInvoice() {
-  const card = getSelectedCard();
-  Finance.markInvoicePaid(State.year, State.month, card);
+  Finance.markInvoicePaid(State.year, State.month);
   showToast('Fatura ' + MONTHS_PT[State.month] + '/' + State.year + ' marcada como paga!', 'success');
   renderCardTab();
   renderOverview();
@@ -1147,15 +1008,20 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ── Auth views ──────────────────────────────────────────────────────────────
+  // Login
   document.getElementById('login-btn').addEventListener('click', Auth.login.bind(Auth));
   document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') Auth.login(); });
   document.getElementById('go-signup').addEventListener('click', () => showAuthView('signup'));
   document.getElementById('go-forgot').addEventListener('click', () => showAuthView('forgot-pw'));
+  // Signup
   document.getElementById('signup-btn').addEventListener('click', Auth.signup.bind(Auth));
   document.getElementById('go-login-from-signup').addEventListener('click', () => showAuthView('login'));
+  // Forgot pw
   document.getElementById('forgot-btn').addEventListener('click', Auth.forgotPassword.bind(Auth));
   document.getElementById('go-login-from-forgot').addEventListener('click', () => showAuthView('login'));
+  // Reset pw
   document.getElementById('reset-btn').addEventListener('click', Auth.resetPassword.bind(Auth));
+  // Subscription
   document.getElementById('sub-btn').addEventListener('click', () => Subscription.subscribe());
   document.getElementById('sub-check-btn').addEventListener('click', () => Subscription.checkStatus());
   document.getElementById('sub-logout-btn').addEventListener('click', () => Auth.logout());
@@ -1181,7 +1047,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.tab-btn').forEach(btn =>
     btn.addEventListener('click', () => showTab(btn.dataset.tab)));
 
-  // ── Expense subtype filter ────────────────────────────────────────────────
+  // ── Expense subtype filter (Avulso / Parcelado / Recorrente) ────────────────
   document.querySelectorAll('[data-expsubtypefilter]').forEach(btn =>
     btn.addEventListener('click', () => {
       State.expSubFilter = btn.dataset.expsubtypefilter;
@@ -1197,7 +1063,7 @@ document.addEventListener('DOMContentLoaded', () => {
       renderExpenses();
     }));
 
-  // ── Card subtype filter ───────────────────────────────────────────────────
+  // ── Card subtype filter (Avulso / Parcelado / Recorrente) ───────────────────
   document.querySelectorAll('[data-cardsubtypefilter]').forEach(btn =>
     btn.addEventListener('click', () => {
       State.cardSubFilter = btn.dataset.cardsubtypefilter;
@@ -1213,59 +1079,53 @@ document.addEventListener('DOMContentLoaded', () => {
       renderIncome();
     }));
 
-  // ── TX modal ──────────────────────────────────────────────────────────────
+  // ── Add tx buttons ──────────────────────────────────────────────────────────
+  document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
+  document.getElementById('btn-add-expense-2').addEventListener('click', () => openAddTx('expense'));
+  document.getElementById('btn-add-income').addEventListener('click',   () => openAddTx('income'));
+  document.getElementById('btn-add-income-2').addEventListener('click', () => openAddTx('income'));
+
+  // ── TX modal ────────────────────────────────────────────────────────────────
   document.getElementById('close-tx-modal').addEventListener('click', () => closeModal('tx-modal'));
-  document.getElementById('tx-save-btn').addEventListener('click', saveTxForm);
+  document.getElementById('tx-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('tx-modal'); });
   document.getElementById('tx-subtype').addEventListener('change', updateSubtypeSection);
   document.getElementById('tx-payment').addEventListener('change', updateInvoicePreview);
   document.getElementById('tx-duedate').addEventListener('change', updateInvoicePreview);
-  document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
-  document.getElementById('btn-add-income').addEventListener('click', () => openAddTx('income'));
-  document.getElementById('btn-add-income-2').addEventListener('click', () => {
-    openAddTx('income');
-    setTimeout(() => {
-      const s = document.getElementById('tx-subtype');
-      if (s) { s.value = 'recurring'; updateSubtypeSection(); }
-    }, 50);
-  });
-  document.getElementById('btn-add-quick').addEventListener('click', openQuickModal);
+  document.getElementById('tx-save-btn').addEventListener('click', saveTxForm);
 
-  // ── Quick modal ────────────────────────────────────────────────────────────
+  // ── Quick modal ─────────────────────────────────────────────────────────────
+  document.getElementById('btn-add-quick').addEventListener('click', openQuickModal);
   document.getElementById('close-quick-modal').addEventListener('click', () => closeModal('quick-modal'));
+  document.getElementById('quick-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('quick-modal'); });
   document.getElementById('quick-save-btn').addEventListener('click', saveQuickForm);
   document.getElementById('quick-input').addEventListener('input', updateQuickPreview);
   document.getElementById('quick-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveQuickForm(); });
 
-  // ── Process modal ──────────────────────────────────────────────────────────
+  // ── Process payments (only on home, btn removed from dashboard) ─────────────
+  const _btnPP = document.getElementById('btn-process-payments');
+  if (_btnPP) _btnPP.addEventListener('click', openProcessPayments);
   document.getElementById('close-process-modal').addEventListener('click', () => closeModal('process-modal'));
+  document.getElementById('process-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('process-modal'); });
   document.getElementById('process-confirm-btn').addEventListener('click', confirmProcessPayments);
 
-  // ── Invoice pay ────────────────────────────────────────────────────────────
+  // ── Card invoice ─────────────────────────────────────────────────────────────
   document.getElementById('btn-pay-invoice').addEventListener('click', payInvoice);
 
-  // ── Card modal (novo / editar cartão) ─────────────────────────────────────
-  document.getElementById('close-card-modal').addEventListener('click', () => closeModal('card-modal'));
-  document.getElementById('card-save-btn').addEventListener('click', saveCardForm);
-  document.getElementById('btn-delete-card').addEventListener('click', deleteCurrentCard);
-  document.getElementById('btn-add-card').addEventListener('click', openAddCard);
-  document.getElementById('btn-edit-card').addEventListener('click', openEditCard);
-
-  // ── Goal modal ─────────────────────────────────────────────────────────────
-  document.getElementById('close-goal-modal').addEventListener('click', () => closeModal('goal-modal'));
-  document.getElementById('goal-save-btn').addEventListener('click', saveGoalForm);
+  // ── Goals ────────────────────────────────────────────────────────────────────
   document.getElementById('btn-add-goal').addEventListener('click', openAddGoal);
+  document.getElementById('close-goal-modal').addEventListener('click', () => closeModal('goal-modal'));
+  document.getElementById('goal-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('goal-modal'); });
+  document.getElementById('goal-save-btn').addEventListener('click', saveGoalForm);
   document.getElementById('close-addgoal-modal').addEventListener('click', () => closeModal('addgoal-modal'));
+  document.getElementById('addgoal-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('addgoal-modal'); });
   document.getElementById('addgoal-save-btn').addEventListener('click', saveAddToGoal);
 
-  // ── Account modal ─────────────────────────────────────────────────────────
+  // ── Account modal ────────────────────────────────────────────────────────────
   document.getElementById('close-account-modal').addEventListener('click', () => closeModal('account-modal'));
-  document.getElementById('acct-cancel-btn').addEventListener('click', () => Subscription.cancel());
-  document.getElementById('acct-logout-btn').addEventListener('click', () => Auth.logout());
+  document.getElementById('account-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal('account-modal'); });
+  document.getElementById('acct-logout-btn').addEventListener('click', () => { closeModal('account-modal'); Auth.logout(); });
+  document.getElementById('acct-cancel-btn').addEventListener('click', () => { closeModal('account-modal'); Subscription.cancel(); });
 
-  // ── Signup CPF mask ────────────────────────────────────────────────────────
-  const signupCpf = document.getElementById('signup-cpf');
-  if (signupCpf) signupCpf.addEventListener('input', () => Subscription.maskCpf(signupCpf));
-
-  // ── Init Auth ──────────────────────────────────────────────────────────────
+  // ── Iniciar Auth (verifica sessão) ───────────────────────────────────────────
   Auth.init();
 });
