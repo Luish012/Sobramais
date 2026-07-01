@@ -40,8 +40,10 @@ const Auth = {
 
   async _afterLogin(user) {
     showAuthView('loading');
+
     try {
       await Storage.loadFromCloud(user.id);
+
       const sub = await Auth._getSub(user.id);
       Auth.currentSubscription = sub;
 
@@ -59,7 +61,12 @@ const Auth = {
 
   async _getSub(userId) {
     try {
-      const { data } = await db.from('subscriptions').select('*').eq('user_id', userId).single();
+      const { data } = await db
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
       return data;
     } catch {
       return null;
@@ -73,6 +80,7 @@ const Auth = {
     const errEl    = document.getElementById('login-error');
 
     errEl.textContent = '';
+
     if (!email || !password) {
       errEl.textContent = 'Preencha e-mail e senha.';
       return;
