@@ -389,16 +389,28 @@
   <!-- ── Cartão ─────────────────────────────────────────────────── -->
   <div class="tab-pane" data-tab="cards">
     <div class="pane-inner">
-      <div class="section-header"><div><div class="section-title">Cartão de Crédito</div><div class="section-sub">Fechamento fixo: dia 31</div></div></div>
+
+      <!-- Seletor de cartão + botão novo cartão -->
+      <div class="section-header" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0">
+          <select id="card-selector" class="form-select" style="flex:1;min-width:0" onchange="selectCard(this.value)"></select>
+          <button id="btn-add-card" class="btn btn-outline btn-sm" title="Novo cartão" style="white-space:nowrap;flex-shrink:0">+ Novo</button>
+        </div>
+        <button id="btn-edit-card" class="btn-icon" title="Editar cartão selecionado" style="flex-shrink:0;margin-left:0.25rem">✏</button>
+      </div>
+
+      <!-- Resumo da fatura -->
       <div class="balance-card" style="margin-bottom:1rem">
         <div class="balance-label" id="card-month-label">Fatura —</div>
         <div id="card-due-label" style="font-size:0.75rem;color:var(--muted-fg);margin-bottom:0.25rem">—</div>
         <div id="card-total" class="balance-amount" style="color:var(--destructive)">R$ 0,00</div>
         <div id="card-invoice-status" class="balance-sub">—</div>
       </div>
+
       <div id="card-pay-section" style="display:none;margin-bottom:1rem">
         <button id="btn-pay-invoice" class="btn btn-gold form-btn-full">Pagar Fatura</button>
       </div>
+
       <div class="filter-row" id="card-subtype-row">
         <button class="filter-pill active" data-cardsubtypefilter="once">Avulsos</button>
         <button class="filter-pill" data-cardsubtypefilter="installment">Parcelados</button>
@@ -627,7 +639,7 @@
           <input id="addgoal-amount" class="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" />
         </div>
         <div class="form-footer">
-          <button id="addgoal-save-btn" type="button" class="btn btn-gold form-btn-full">Guardar</button>
+          <button id="addgoal-save-btn" type="button" class="btn btn-primary form-btn-full">Guardar</button>
         </div>
       </form>
     </div>
@@ -635,7 +647,43 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Minha Conta / Assinatura                                      -->
+<!-- MODAL: Cartão de Crédito (Adicionar / Editar)                        -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="card-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="card-modal-title" class="modal-title">Novo Cartão</span>
+      <button id="close-card-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="card-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label">Nome do Cartão</label>
+          <input id="card-name" class="form-input" type="text" placeholder="ex: Cartão Nubank, Inter…" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Dia de Fechamento</label>
+            <input id="card-closing-day" class="form-input" type="number" min="1" max="31" placeholder="30" />
+            <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem">Último dia para compras entrarem na fatura atual</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dia de Vencimento</label>
+            <input id="card-due-day" class="form-input" type="number" min="1" max="31" placeholder="8" />
+            <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem">Dia em que a fatura vence todo mês</div>
+          </div>
+        </div>
+        <div class="form-footer" style="display:flex;flex-direction:column;gap:0.5rem">
+          <button id="card-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Cartão</button>
+          <button id="btn-delete-card" type="button" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Excluir Cartão</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Conta / Assinatura                                            -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="account-modal" class="modal-overlay">
   <div class="modal-box">
@@ -644,54 +692,60 @@
       <button id="close-account-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
-      <div class="acct-row">
-        <span class="acct-label">Nome</span>
-        <span id="acct-name" class="acct-value">—</span>
+      <div style="margin-bottom:1.25rem">
+        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Nome</div>
+        <div id="acct-name" style="font-size:1rem;font-weight:500">—</div>
       </div>
-      <div class="acct-row">
-        <span class="acct-label">E-mail</span>
-        <span id="acct-email" class="acct-value" style="font-size:0.85rem">—</span>
+      <div style="margin-bottom:1.25rem">
+        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">E-mail</div>
+        <div id="acct-email" style="font-size:1rem">—</div>
       </div>
-      <div style="height:1px;background:var(--border);margin:1rem 0"></div>
-      <div class="acct-row">
-        <span class="acct-label">Assinatura</span>
-        <span id="acct-sub-status" class="acct-value">—</span>
+      <div style="margin-bottom:1.25rem">
+        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Assinatura</div>
+        <div id="acct-sub-status" style="font-size:1rem;font-weight:600">—</div>
+        <div id="acct-sub-end" style="font-size:0.82rem;color:var(--muted-fg);margin-top:0.25rem;display:none">—</div>
       </div>
-      <div id="acct-sub-end" class="acct-row" style="display:none">
-        <span class="acct-label"></span>
-        <span class="acct-value" style="color:var(--muted-fg);font-size:0.85rem"></span>
-      </div>
-      <div class="form-footer" style="margin-top:1.5rem">
-        <button id="acct-cancel-btn" class="btn btn-danger form-btn-full" style="display:none">Cancelar Assinatura</button>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:1.5rem">
+        <button id="acct-cancel-btn" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Cancelar Assinatura</button>
         <button id="acct-logout-btn" class="btn btn-outline form-btn-full">Sair da Conta</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Hidden compat -->
-<button id="btn-add-expense-2" style="display:none">add expense</button>
-
-<!-- TOAST -->
-<div id="toast"></div>
-
-<!-- CONFIRM DIALOG -->
-<div id="confirm-overlay">
-  <div class="confirm-box">
-    <div id="confirm-msg" class="confirm-msg">Tem certeza?</div>
-    <div class="confirm-actions">
-      <button id="confirm-cancel" class="btn btn-outline">Cancelar</button>
-      <button id="confirm-ok" class="btn btn-danger">Confirmar</button>
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- CONFIRM OVERLAY                                                      -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="confirm-overlay" class="modal-overlay">
+  <div class="modal-box" style="max-width:320px">
+    <div class="modal-body" style="text-align:center;padding-top:1.5rem">
+      <p id="confirm-msg" style="font-size:0.95rem;margin-bottom:1.5rem;line-height:1.5">Tem certeza?</p>
+      <div style="display:flex;gap:0.75rem">
+        <button id="confirm-cancel" class="btn btn-outline form-btn-full">Cancelar</button>
+        <button id="confirm-ok" class="btn btn-primary form-btn-full">Confirmar</button>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- TOAST                                                                -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="toast"></div>
+
+<!-- <!-- ════════════════════════════════════════════════════════════════════ -->
 <!-- SCRIPTS                                                              -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
+
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- Biblioteca oficial do Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<!-- Inicialização do cliente -->
 <script src="supabase-client.js"></script>
+
+<!-- Restante do sistema -->
 <script src="storage.js"></script>
 <script src="finance.js"></script>
 <script src="auth.js"></script>
