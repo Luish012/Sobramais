@@ -98,6 +98,7 @@ function refreshTab(t) {
   else if (t === 'income')   renderIncome();
   else if (t === 'cards')    renderCardTab();
   else if (t === 'goals')    renderGoals();
+  else if (t === 'reports')  refreshReports();
 }
 
 // ─── MONTH NAVIGATION ────────────────────────────────────────────────────────
@@ -702,6 +703,7 @@ let _txType = 'expense';
 function openAddTx(type) {
   _txType = type || 'expense';
   State.editTxId = null;
+  _populateTxCardSelect(null);
   resetTxForm();
   document.getElementById('tx-modal-title').textContent = _txType === 'income' ? 'Nova Entrada' : 'Nova Despesa';
   openModal('tx-modal');
@@ -723,6 +725,8 @@ function openEditTx(id) {
   document.getElementById('tx-subtype').value  = tx.subtype;
   document.getElementById('tx-installments').value = tx.installmentTotal || 1;
   document.getElementById('tx-paid').checked   = tx.paid;
+  // Pré-seleciona o cartão da transação no seletor do modal
+  _populateTxCardSelect(tx.cardId || null);
   updateSubtypeSection();
   updateInvoicePreview();
   openModal('tx-modal');
@@ -746,20 +750,51 @@ function updateSubtypeSection() {
     document.getElementById('tx-subtype').value === 'installment' ? '' : 'none';
 }
 
+// Retorna o cartão escolhido NO SELETOR DO MODAL de transação.
+// Fallback para getSelectedCard() se o seletor não existir ou estiver vazio.
+function _getTxCard() {
+  const sel   = document.getElementById('tx-card-select');
+  const selId = sel?.value;
+  if (selId) {
+    const found = Storage.getCards().find(c => c.id === selId);
+    if (found) return found;
+  }
+  return getSelectedCard();
+}
+
+// Popula o <select id="tx-card-select"> e pré-seleciona o card indicado.
+function _populateTxCardSelect(selectedId) {
+  const sel = document.getElementById('tx-card-select');
+  if (!sel) return;
+  const cards = Storage.getCards();
+  const list  = cards.length > 0 ? cards : [DEFAULT_CARD];
+  const defId = selectedId || getSelectedCard().id;
+  sel.innerHTML = list
+    .map(c => `<option value="${esc(c.id)}"${c.id === defId ? ' selected' : ''}>${esc(c.name)}</option>`)
+    .join('');
+}
+
 function updateInvoicePreview() {
-  const payment  = document.getElementById('tx-payment').value;
-  const dateVal  = document.getElementById('tx-duedate').value;
-  const labelEl  = document.getElementById('tx-date-label');
+  const payment   = document.getElementById('tx-payment').value;
+  const dateVal   = document.getElementById('tx-duedate').value;
+  const labelEl   = document.getElementById('tx-date-label');
   const previewEl = document.getElementById('tx-invoice-preview');
+  const cardRow   = document.getElementById('tx-card-row');
   if (!labelEl || !previewEl) return;
-  if (payment === 'credito' && dateVal) {
+  if (payment === 'credito') {
+    if (cardRow) cardRow.style.display = '';
     labelEl.textContent = 'Data da compra';
-    const card = getSelectedCard();
-    const info = getInvoiceForPurchase(dateVal, card);
-    const lbl  = invoiceLabel(info.cycleKey, card.dueDay);
-    previewEl.textContent = '→ Entrará na ' + lbl.title + ' · ' + lbl.dueLabel;
-    previewEl.style.display = '';
+    if (dateVal) {
+      const card = _getTxCard();
+      const info = getInvoiceForPurchase(dateVal, card);
+      const lbl  = invoiceLabel(info.cycleKey, card.dueDay);
+      previewEl.textContent = '→ Entrará na ' + lbl.title + ' · ' + lbl.dueLabel;
+      previewEl.style.display = '';
+    } else {
+      previewEl.style.display = 'none';
+    }
   } else {
+    if (cardRow) cardRow.style.display = 'none';
     labelEl.textContent = 'Data / Vencimento';
     previewEl.style.display = 'none';
   }
@@ -779,7 +814,8 @@ function saveTxForm() {
   if (!amount || amount <= 0) { showToast('Informe um valor válido', 'error'); return; }
   if (!dueDate)        { showToast('Informe a data', 'error'); return; }
 
-  const selectedCard = payment === 'credito' ? getSelectedCard() : null;
+  // Usa o cartão escolhido no seletor do modal de transação
+  const selectedCard = payment === 'credito' ? _getTxCard() : null;
 
   const base = {
     type: _txType, subtype, description: desc, amount,
@@ -864,6 +900,7 @@ function openQuickModal() {
   inp.value = '';
   document.getElementById('quick-preview').style.display = 'none';
   document.getElementById('quick-sim-preview').style.display = 'none';
+  document.getElementById('quick-card-row')?.style && (document.getElementById('quick-card-row').style.display = 'none');
 
   _quickBase.saldo    = Finance.calcSaldoDisponivel(State.year, State.month);
   _quickBase.previsao = Finance.calcPrevisao(State.year, State.month);
@@ -879,57 +916,85 @@ function openQuickModal() {
     prevEl.style.display = '';
   }
 
+  // Popular seletor de cartão com todos os cartões cadastrados.
+  // Padrão: cartão atualmente selecionado na aba Cartão.
+  const quickCardSel = document.getElementById('quick-card-select');
+  if (quickCardSel) {
+    const cards = Storage.getCards();
+    const list  = cards.length > 0 ? cards : [DEFAULT_CARD];
+    const defaultId = getSelectedCard().id;
+    quickCardSel.innerHTML = list
+      .map(c => `<option value="${esc(c.id)}"${c.id === defaultId ? ' selected' : ''}>${esc(c.name)}</option>`)
+      .join('');
+  }
+
   openModal('quick-modal');
   setTimeout(() => inp.focus(), 100);
+}
+
+// Retorna o cartão escolhido NO SELETOR DO MODAL de gasto rápido.
+// Fallback para getSelectedCard() se o seletor não existir ou estiver vazio.
+function _getQuickCard() {
+  const sel   = document.getElementById('quick-card-select');
+  const selId = sel?.value;
+  if (selId) {
+    const found = Storage.getCards().find(c => c.id === selId);
+    if (found) return found;
+  }
+  return getSelectedCard();
 }
 
 function updateQuickPreview() {
   const val     = document.getElementById('quick-input').value;
   const preview = document.getElementById('quick-preview');
   const simEl   = document.getElementById('quick-sim-preview');
+  const cardRow = document.getElementById('quick-card-row');
   const parsed  = parseQuickInput(val);
 
   if (parsed) {
     preview.style.display = '';
     preview.innerHTML = `<strong>${esc(parsed.description)}</strong> — ${fmtCurrency(parsed.amount)} — ${fmtPayment(parsed.paymentMethod)}`;
 
-    const isCredito       = parsed.paymentMethod === 'credito';
-    const simSaldo        = document.getElementById('quick-sim-saldo');
-    const simPrevisao     = document.getElementById('quick-sim-previsao');
-    const previsaoItem    = document.getElementById('quick-sim-previsao-item');
-    const faturaItem      = document.getElementById('quick-sim-fatura-item');
-    const faturaLabel     = document.getElementById('quick-sim-fatura-label');
-    const simFatura       = document.getElementById('quick-sim-fatura');
+    const isCredito    = parsed.paymentMethod === 'credito';
+    const simSaldo     = document.getElementById('quick-sim-saldo');
+    const simPrevisao  = document.getElementById('quick-sim-previsao');
+    const previsaoItem = document.getElementById('quick-sim-previsao-item');
+    const faturaItem   = document.getElementById('quick-sim-fatura-item');
+    const faturaLabel  = document.getElementById('quick-sim-fatura-label');
+    const simFatura    = document.getElementById('quick-sim-fatura');
 
     if (isCredito) {
-      // Crédito: saldo atual não muda, mostra impacto na fatura do cartão selecionado
+      // Mostrar seletor de cartão
+      if (cardRow) cardRow.style.display = '';
+
+      // Crédito: saldo atual não muda; mostrar impacto na fatura do cartão escolhido
       simSaldo.textContent = fmtCurrency(_quickBase.saldo);
       simSaldo.style.color = 'var(--muted-fg)';
-
       previsaoItem.style.display = 'none';
 
-      // Calcular em qual mês de fatura vai cair baseado no cartão selecionado
-      const card      = getSelectedCard();
-      const invInfo   = getInvoiceForPurchase(todayIso(), card);
-      const invY      = invInfo.year;
-      const invM      = invInfo.month;
+      // Usar o cartão escolhido no seletor do próprio modal
+      const card        = _getQuickCard();
+      const invInfo     = getInvoiceForPurchase(todayIso(), card);
+      const invY        = invInfo.year;
+      const invM        = invInfo.month;
       const invPrevisao = Finance.calcPrevisao(invY, invM);
-      const invApos   = invPrevisao - parsed.amount;
+      const invApos     = invPrevisao - parsed.amount;
 
-      faturaLabel.textContent   = `Previsão ${MONTHS_PT[invM]}/${invY} (fatura ${esc(card.name)})`;
-      simFatura.textContent     = fmtCurrency(invApos);
-      simFatura.style.color     = invApos >= 0 ? 'var(--success)' : 'var(--destructive)';
-      faturaItem.style.display  = '';
+      faturaLabel.textContent  = `Previsão ${MONTHS_PT[invM]}/${invY} (fatura ${esc(card.name)})`;
+      simFatura.textContent    = fmtCurrency(invApos);
+      simFatura.style.color    = invApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      faturaItem.style.display = '';
     } else {
+      // Ocultar seletor de cartão para pagamentos não-crédito
+      if (cardRow) cardRow.style.display = 'none';
+
       const saldoApos    = _quickBase.saldo    - parsed.amount;
       const previsaoApos = _quickBase.previsao - parsed.amount;
 
       simSaldo.textContent    = fmtCurrency(saldoApos);
       simSaldo.style.color    = saldoApos    >= 0 ? 'var(--success)' : 'var(--destructive)';
-
       simPrevisao.textContent = fmtCurrency(previsaoApos);
       simPrevisao.style.color = previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
-
       previsaoItem.style.display = '';
       faturaItem.style.display   = 'none';
     }
@@ -938,6 +1003,7 @@ function updateQuickPreview() {
   } else {
     preview.style.display = 'none';
     simEl.style.display   = 'none';
+    if (cardRow) cardRow.style.display = 'none';
   }
 }
 
@@ -946,8 +1012,8 @@ function saveQuickForm() {
   const parsed = parseQuickInput(val);
   if (!parsed) { showToast('Formato inválido. Ex: Mercado 120 débito', 'error'); return; }
   if (parsed.paymentMethod === 'credito') {
-    // Usar cartão selecionado e a regra de fechamento correta
-    const card = getSelectedCard();
+    // Usar o cartão escolhido no seletor do próprio modal de Gasto Rápido
+    const card         = _getQuickCard();
     const purchaseDate = todayIso();
     Finance.addTransaction({
       type:'expense', subtype:'once', description:parsed.description, amount:parsed.amount,
@@ -960,6 +1026,268 @@ function saveQuickForm() {
   showToast('Gasto lançado!', 'success');
   closeModal('quick-modal');
   if (State.view === 'dashboard') refreshAll();
+}
+
+// ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
+let _rptYear  = null;
+let _rptMonth = null;
+let _rptData  = null;
+let _rptChart = null;
+let _rptOpenCat = null;
+
+const RPT_COLORS = [
+  '#c9a227','#e07b54','#5b9bd5','#6aa84f','#cc4125',
+  '#674ea7','#e69138','#45818e','#a64d79','#888888',
+];
+
+function rptChangeMonth(delta) {
+  _rptMonth += delta;
+  if (_rptMonth > 11) { _rptMonth = 0; _rptYear++; }
+  if (_rptMonth < 0)  { _rptMonth = 11; _rptYear--; }
+  _rptData    = null;
+  _rptOpenCat = null;
+  renderReports();
+}
+
+function refreshReports() {
+  if (_rptYear === null) {
+    _rptYear  = State.year;
+    _rptMonth = State.month;
+  }
+  _rptData    = null;
+  _rptOpenCat = null;
+  renderReports();
+}
+
+function _buildReportExpenses(year, month) {
+  // Transações de competência do mês (tx regulares + crédito rápido que virou tx)
+  const txExpenses = Finance.getByCompetency(year, month)
+    .filter(t => t.type === 'expense')
+    .map(t => ({
+      id:            t.id,
+      date:          (t.paymentMethod === 'credito' && t.purchaseDate) ? t.purchaseDate : t.dueDate,
+      description:   t.description,
+      amount:        t.amount,
+      paymentMethod: t.paymentMethod,
+      category:      t.category || 'Outros',
+    }));
+
+  // Gastos rápidos não-crédito (armazenados separadamente)
+  const quickExpenses = (Storage.getQuickExpenses() || [])
+    .filter(q => {
+      if (q.paymentMethod === 'credito') return false;
+      const d = new Date((q.date || '') + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
+    })
+    .map(q => ({
+      id:            'q_' + (q.id || q.date + q.description),
+      date:          q.date || '',
+      description:   q.description || q.desc || '—',
+      amount:        Number(q.amount) || 0,
+      paymentMethod: q.paymentMethod || 'pix',
+      category:      q.category || 'Outros',
+    }));
+
+  return [...txExpenses, ...quickExpenses];
+}
+
+function _buildRptData(year, month) {
+  const expenses = _buildReportExpenses(year, month);
+  const total    = expenses.reduce((s, e) => s + e.amount, 0);
+
+  const catMap = new Map();
+  for (const e of expenses) {
+    const cat = e.category || 'Outros';
+    if (!catMap.has(cat)) catMap.set(cat, { name: cat, total: 0, items: [] });
+    const g = catMap.get(cat);
+    g.total += e.amount;
+    g.items.push(e);
+  }
+
+  const categories = [...catMap.values()].sort((a, b) => b.total - a.total);
+  for (const c of categories) {
+    c.items.sort((a, b) => (b.date > a.date ? 1 : -1));
+    c.pct = total > 0 ? (c.total / total * 100) : 0;
+    const amts = c.items.map(i => i.amount);
+    c.avg = c.items.length > 0 ? c.total / c.items.length : 0;
+    c.max = amts.length > 0 ? Math.max(...amts) : 0;
+    c.min = amts.length > 0 ? Math.min(...amts) : 0;
+  }
+
+  const today    = new Date();
+  const isCurMon = year === today.getFullYear() && month === today.getMonth();
+  const days     = isCurMon ? today.getDate() : new Date(year, month + 1, 0).getDate();
+  const maxItem  = expenses.length > 0 ? expenses.reduce((a, b) => a.amount >= b.amount ? a : b) : null;
+
+  return {
+    total, categories,
+    topCat:   categories[0] || null,
+    maxItem,
+    avgDaily: days > 0 ? total / days : 0,
+  };
+}
+
+function renderReports() {
+  const year = _rptYear, month = _rptMonth;
+
+  const labelEl = document.getElementById('rpt-month-label');
+  if (labelEl) labelEl.textContent = MONTHS_PT[month] + ' / ' + year;
+
+  if (!_rptData) _rptData = _buildRptData(year, month);
+  const d = _rptData;
+
+  // KPI cards
+  const sumEl = document.getElementById('rpt-summary');
+  if (sumEl) {
+    const topLabel = d.topCat ? esc(d.topCat.name) + ' (' + d.topCat.pct.toFixed(0) + '%)' : '—';
+    const maxLabel = d.maxItem ? fmtCurrency(d.maxItem.amount) : '—';
+    sumEl.innerHTML =
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">💰</div><div class="rpt-kpi-label">Total gasto</div><div class="rpt-kpi-value">' + fmtCurrency(d.total) + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">🛒</div><div class="rpt-kpi-label">Maior categoria</div><div class="rpt-kpi-value rpt-kpi-sm">' + topLabel + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">💳</div><div class="rpt-kpi-label">Maior compra</div><div class="rpt-kpi-value">' + maxLabel + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">📈</div><div class="rpt-kpi-label">Média diária</div><div class="rpt-kpi-value">' + fmtCurrency(d.avgDaily) + '</div></div>';
+  }
+
+  _renderRptChart(d);
+  _renderRptCatList(d);
+}
+
+function _renderRptChart(d) {
+  const canvas = document.getElementById('rpt-chart');
+  if (!canvas) return;
+
+  if (_rptChart) { _rptChart.destroy(); _rptChart = null; }
+  if (d.total === 0) return;
+
+  const labels = d.categories.map(c => c.name);
+  const values = d.categories.map(c => c.total);
+  const colors = d.categories.map((_, i) => RPT_COLORS[i % RPT_COLORS.length]);
+  const cardBg = getComputedStyle(document.documentElement).getPropertyValue('--card').trim() || '#fff';
+  const fgCol  = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()   || '#1a1a1a';
+  const muCol  = getComputedStyle(document.documentElement).getPropertyValue('--muted-fg').trim() || '#888';
+  const totalLabel = fmtCurrency(d.total);
+
+  _rptChart = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: cardBg,
+        hoverOffset: 6,
+      }],
+    },
+    options: {
+      cutout: '68%',
+      animation: { duration: 600, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const cat = d.categories[ctx.dataIndex];
+              return [
+                '  ' + fmtCurrency(cat.total),
+                '  ' + cat.pct.toFixed(1) + '% do total',
+                '  ' + cat.items.length + (cat.items.length === 1 ? ' compra' : ' compras'),
+              ];
+            },
+          },
+        },
+      },
+    },
+    plugins: [{
+      id: 'rptCenter',
+      afterDraw(chart) {
+        const { ctx, chartArea: { top, left, width, height } } = chart;
+        const cx = left + width / 2, cy = top + height / 2;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = muCol;
+        ctx.font = '500 0.68rem Inter,sans-serif';
+        ctx.fillText('Total gasto', cx, cy - 10);
+        ctx.fillStyle = fgCol;
+        ctx.font = '600 1.05rem Inter,sans-serif';
+        ctx.fillText(totalLabel, cx, cy + 12);
+        ctx.restore();
+      },
+    }],
+  });
+
+  canvas.onclick = (e) => {
+    if (!_rptChart) return;
+    const pts = _rptChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+    if (!pts.length) return;
+    const catName = d.categories[pts[0].index]?.name;
+    if (catName) _rptToggleCat(catName);
+  };
+}
+
+function _rptToggleCat(name) {
+  _rptOpenCat = _rptOpenCat === name ? null : name;
+  document.querySelectorAll('.rpt-cat-item').forEach(el => {
+    const isThis  = el.dataset.cat === name;
+    const open    = isThis && _rptOpenCat === name;
+    const detail  = el.querySelector('.rpt-cat-detail');
+    const arrow   = el.querySelector('.rpt-cat-arrow');
+    if (detail) detail.style.display = open ? '' : 'none';
+    if (arrow)  arrow.textContent    = open ? '▲' : '▼';
+    el.classList.toggle('rpt-cat-open', open);
+  });
+}
+
+function _fmtDateShort(iso) {
+  if (!iso) return '—';
+  const parts = iso.split('-');
+  if (parts.length < 3) return iso;
+  return parts[2] + '/' + parts[1];
+}
+
+function _renderRptCatList(d) {
+  const el = document.getElementById('rpt-cat-list');
+  if (!el) return;
+
+  if (d.categories.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Nenhum gasto neste mês</div><div class="empty-sub">Lance despesas para ver o relatório</div></div>';
+    return;
+  }
+
+  el.innerHTML = d.categories.map((cat, i) => {
+    const color = RPT_COLORS[i % RPT_COLORS.length];
+    const catKey = esc(cat.name);
+    const rows = cat.items.map(item =>
+      '<div class="rpt-tx-row">' +
+        '<span class="rpt-tx-date">' + _fmtDateShort(item.date) + '</span>' +
+        '<span class="rpt-tx-desc">' + esc(item.description) + '</span>' +
+        '<span class="rpt-tx-pay">' + esc(fmtPayment(item.paymentMethod)) + '</span>' +
+        '<span class="rpt-tx-amt">' + fmtCurrency(item.amount) + '</span>' +
+      '</div>'
+    ).join('');
+
+    return (
+      '<div class="rpt-cat-item" data-cat="' + catKey + '" onclick="_rptToggleCat(\'' + catKey.replace(/'/g, "\\'") + '\')">' +
+        '<div class="rpt-cat-header">' +
+          '<span class="rpt-cat-dot" style="background:' + color + '"></span>' +
+          '<span class="rpt-cat-name">' + catKey + '</span>' +
+          '<div class="rpt-cat-bar-wrap"><div class="rpt-cat-bar" style="width:' + cat.pct.toFixed(1) + '%;background:' + color + '"></div></div>' +
+          '<span class="rpt-cat-pct">' + cat.pct.toFixed(0) + '%</span>' +
+          '<span class="rpt-cat-total">' + fmtCurrency(cat.total) + '</span>' +
+          '<span class="rpt-cat-arrow">▼</span>' +
+        '</div>' +
+        '<div class="rpt-cat-detail" style="display:none">' +
+          '<div class="rpt-cat-stats">' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Compras</span><span class="rpt-stat-val">' + cat.items.length + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Ticket médio</span><span class="rpt-stat-val">' + fmtCurrency(cat.avg) + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Maior compra</span><span class="rpt-stat-val">' + fmtCurrency(cat.max) + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Menor compra</span><span class="rpt-stat-val">' + fmtCurrency(cat.min) + '</span></div>' +
+          '</div>' +
+          '<div class="rpt-tx-list">' + rows + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
 }
 
 // ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
@@ -1218,6 +1546,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tx-save-btn').addEventListener('click', saveTxForm);
   document.getElementById('tx-subtype').addEventListener('change', updateSubtypeSection);
   document.getElementById('tx-payment').addEventListener('change', updateInvoicePreview);
+  document.getElementById('tx-card-select')?.addEventListener('change', updateInvoicePreview);
   document.getElementById('tx-duedate').addEventListener('change', updateInvoicePreview);
   document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
   document.getElementById('btn-add-income').addEventListener('click', () => openAddTx('income'));
