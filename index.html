@@ -301,6 +301,7 @@
     <button class="tab-btn" data-tab="income">Entradas</button>
     <button class="tab-btn" data-tab="cards">Cartão</button>
     <button class="tab-btn" data-tab="goals">Poupança</button>
+    <button class="tab-btn" data-tab="reports">Relatórios</button>
   </nav>
 
   <div class="dashboard-scroll">
@@ -432,6 +433,26 @@
     </div>
   </div>
 
+  <div class="tab-pane" data-tab="reports">
+    <div class="pane-inner">
+      <!-- Navegação de mês -->
+      <div class="rpt-month-nav">
+        <button class="btn btn-ghost btn-sm" onclick="rptChangeMonth(-1)">‹</button>
+        <span id="rpt-month-label" class="rpt-month-txt"></span>
+        <button class="btn btn-ghost btn-sm" onclick="rptChangeMonth(1)">›</button>
+      </div>
+      <!-- KPIs -->
+      <div class="rpt-kpi-grid" id="rpt-summary"></div>
+      <!-- Gráfico + Lista (layout responsivo) -->
+      <div class="rpt-layout">
+        <div class="rpt-chart-wrap">
+          <canvas id="rpt-chart"></canvas>
+        </div>
+        <div class="rpt-cat-list" id="rpt-cat-list"></div>
+      </div>
+    </div>
+  </div>
+
   </div><!-- end dashboard-scroll -->
 </div><!-- end view-dashboard -->
 
@@ -478,6 +499,11 @@
               <option value="boleto">Boleto</option>
             </select>
           </div>
+        </div>
+        <!-- Seletor de cartão — visível apenas quando pagamento for crédito -->
+        <div id="tx-card-row" class="form-group" style="display:none">
+          <label class="form-label">💳 Cartão</label>
+          <select id="tx-card-select" class="form-select"></select>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -539,6 +565,13 @@
         </div>
       </div>
       <div id="quick-preview" style="display:none;background:var(--muted);border-radius:var(--r-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.875rem"></div>
+      <!-- Seletor de cartão — visível apenas quando pagamento for crédito -->
+      <div id="quick-card-row" style="display:none;margin-top:0.75rem">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">💳 Cartão</label>
+          <select id="quick-card-select" class="form-select" onchange="updateQuickPreview()"></select>
+        </div>
+      </div>
       <div id="quick-sim-preview" style="display:none;margin-top:0.75rem">
         <div class="quick-sim-block">
           <div class="quick-sim-item">
@@ -738,6 +771,9 @@
 <!-- ════════════════════════════════════════════════════════════════════ -->
 
 <script src="config.js"></script>
+
+<!-- Chart.js — gráficos -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 
 <!-- Biblioteca oficial do Supabase -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
