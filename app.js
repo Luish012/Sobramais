@@ -182,24 +182,60 @@ function renderHomeTrial() {
 function renderHomeAlerts() {
   const alertsEl = document.getElementById('home-alerts');
   if (!alertsEl) return;
-  const reminders = Finance.getReminders();
-  if (reminders.length === 0) {
+
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+
+  // Lembretes individuais — excluir compras de crédito (pertencem à fatura)
+  const txReminders = Finance.getReminders()
+    .filter(r => r.tx.paymentMethod !== 'credito');
+
+  // Faturas de cartão próximas do vencimento — uma linha por cartão
+  const allCards = Storage.getCards();
+  const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
+  const cardAlerts = cardsToCheck.map(card => {
+    const invoice = Finance.getCardInvoice(y, m, card);
+    if (invoice.total <= 0 || invoice.allPaid) return null;
+    const maxDay    = new Date(y, m + 1, 0).getDate();
+    const invDay    = Math.min(card.dueDay, maxDay);
+    const dueDateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(invDay).padStart(2, '0')}`;
+    const status    = getDueStatus(dueDateStr);
+    if (!['overdue', 'today', 'tomorrow'].includes(status)) return null;
+    return { card, invoice, status, dueDateStr };
+  }).filter(Boolean).sort((a, b) => a.dueDateStr > b.dueDateStr ? 1 : -1);
+
+  if (txReminders.length === 0 && cardAlerts.length === 0) {
     alertsEl.style.display = 'none';
     return;
   }
+
   alertsEl.style.display = '';
-  alertsEl.innerHTML =
-    `<div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">⚠ Atenção</div>` +
-    reminders.slice(0, 5).map(r => {
-      const label = r.status === 'overdue' ? 'Vencida' : r.status === 'today' ? 'Vence hoje' : 'Vence amanhã';
-      const dotColor = r.status === 'overdue' ? 'var(--destructive)' : r.status === 'today' ? 'hsl(38,92%,50%)' : 'hsl(38,80%,60%)';
-      return `<div class="reminder-row">
-        <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>
+
+  const labelFor = s => s === 'overdue' ? 'Vencida' : s === 'today' ? 'Vence hoje' : 'Vence amanhã';
+  const dotFor   = s => s === 'overdue' ? 'var(--destructive)' : s === 'today' ? 'hsl(38,92%,50%)' : 'hsl(38,80%,60%)';
+
+  const cardRows = cardAlerts.map(({ card, invoice, status }) => {
+    const count = invoice.transactions.length;
+    return `<div class="reminder-row">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotFor(status)};flex-shrink:0;display:inline-block"></span>
+        <span class="reminder-text">💳 ${esc(card.name)} <span style="font-size:0.72rem;color:var(--muted-fg);font-weight:400">(${count} compra${count !== 1 ? 's' : ''})</span></span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${labelFor(status)}</span>
+        <span class="reminder-amount">${fmtCurrency(invoice.total)}</span>
+      </div>`;
+  }).join('');
+
+  const txRows = txReminders.slice(0, 5).map(r => {
+    return `<div class="reminder-row">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotFor(r.status)};flex-shrink:0;display:inline-block"></span>
         <span class="reminder-text">${esc(r.tx.description)}</span>
-        <span style="font-size:0.78rem;color:var(--muted-fg)">${label}</span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${labelFor(r.status)}</span>
         <span class="reminder-amount">${fmtCurrency(r.tx.amount)}</span>
       </div>`;
-    }).join('');
+  }).join('');
+
+  alertsEl.innerHTML =
+    `<div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">⚠ Atenção</div>` +
+    cardRows + txRows;
 }
 
 // ─── HOME BALANCE ─────────────────────────────────────────────────────────────
