@@ -1291,24 +1291,36 @@ function _renderRptCatList(d) {
 }
 
 // ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
-let _processSelectedIds = new Set();
+// _processSelectedTxIds  — IDs individuais (receitas + despesas sem cartão)
+// _processSelectedInvoices — chaves "cardId::year::month" para faturas agrupadas
+let _processSelectedTxIds = new Set();
+let _processSelectedInvoices = new Set();
+
 function openProcessPayments() {
   const today = new Date();
   const y = today.getFullYear(), m = today.getMonth();
 
+  // Receitas pendentes do mês atual (listagem individual)
   const pendingIncome = Finance.getByCompetency(y, m, 'income')
     .filter(t => !t.paid)
     .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
 
-  const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month);
+  // Despesas não-crédito pendentes (listagem individual)
+  const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month)
+    .filter(t => t.paymentMethod !== 'credito');
 
-  _processSelectedIds = new Set([
-    ...pendingIncome.map(t => t.id),
-    ...pendingExpenses.map(t => t.id),
-  ]);
+  // Faturas de cartão — uma linha por cartão
+  const allCards = Storage.getCards();
+  const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
+  const cardInvoices = cardsToCheck
+    .map(card => ({ card, invoice: Finance.getCardInvoice(State.year, State.month, card) }))
+    .filter(({ invoice }) => invoice.total > 0 && !invoice.allPaid);
+
+  _processSelectedTxIds = new Set();
+  _processSelectedInvoices = new Set();
 
   const listEl = document.getElementById('process-list');
-  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0;
+  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0 || cardInvoices.length > 0;
 
   if (!hasAny) {
     listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[State.month]}/${State.year} 🎉</div>`;
@@ -1316,14 +1328,15 @@ function openProcessPayments() {
   } else {
     document.getElementById('process-confirm-btn').style.display = '';
 
-    const renderRow = (t, colorClass) => {
+    // Linha individual (receita ou despesa comum)
+    const renderTxRow = (t, colorClass) => {
       const isLate  = getDueStatus(t.dueDate) === 'overdue';
       const isToday = getDueStatus(t.dueDate) === 'today';
       const badge   = isLate  ? '<span style="color:var(--destructive);font-size:0.72rem">● Vencida</span>'
                     : isToday ? '<span style="color:hsl(38,92%,50%);font-size:0.72rem">● Hoje</span>'
                     : '';
       return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;border:1px solid ${isLate?'hsl(0,70%,80%)':'var(--border)'};border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:${isLate?'hsla(0,70%,55%,0.04)':'transparent'}">
-        <input type="checkbox" checked data-process-id="${t.id}" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('${t.id}',this.checked)" />
+        <input type="checkbox" data-process-id="${t.id}" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('tx','${t.id}',this.checked)" />
         <div style="flex:1;min-width:0">
           <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)}</div>
           <div style="font-size:0.78rem;color:var(--muted-fg);display:flex;gap:0.5rem;align-items:center">${fmtDate(t.dueDate)}${t.subtype==='installment'?` · Parcela ${t.installmentCurrent}/${t.installmentTotal}`:''}${badge?` · ${badge}`:''}</div>
@@ -1332,28 +1345,68 @@ function openProcessPayments() {
       </label>`;
     };
 
+    // Linha de fatura de cartão (agrupada)
+    const renderInvoiceRow = (card, invoice) => {
+      const invoiceKey = `${card.id}::${State.year}::${State.month}`;
+      const count = invoice.transactions.length;
+      return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 0.75rem;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:transparent">
+        <input type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('invoice','${invoiceKey}',this.checked)" />
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💳 ${esc(card.name)}</div>
+          <div style="font-size:0.78rem;color:var(--muted-fg)">${esc(invoice.title)} · ${esc(invoice.dueLabel)} · ${count} compra${count !== 1 ? 's' : ''}</div>
+        </div>
+        <div style="font-weight:700;color:var(--destructive);white-space:nowrap">${fmtCurrency(invoice.total)}</div>
+      </label>`;
+    };
+
     let html = '';
 
     if (pendingIncome.length > 0) {
       html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--success);margin:0.75rem 0 0.5rem">▲ Receber</div>`;
-      html += pendingIncome.map(t => renderRow(t, 'var(--success)')).join('');
+      html += pendingIncome.map(t => renderTxRow(t, 'var(--success)')).join('');
+    }
+
+    if (cardInvoices.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Faturas de Cartão</div>`;
+      html += cardInvoices.map(({ card, invoice }) => renderInvoiceRow(card, invoice)).join('');
     }
 
     if (pendingExpenses.length > 0) {
-      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Pagar</div>`;
-      html += pendingExpenses.map(t => renderRow(t, 'var(--destructive)')).join('');
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Outras Despesas</div>`;
+      html += pendingExpenses.map(t => renderTxRow(t, 'var(--destructive)')).join('');
     }
 
     listEl.innerHTML = html;
   }
   openModal('process-modal');
 }
-function toggleProcessItem(id, checked) { if (checked) _processSelectedIds.add(id); else _processSelectedIds.delete(id); }
+
+function toggleProcessItem(kind, id, checked) {
+  if (kind === 'invoice') {
+    if (checked) _processSelectedInvoices.add(id); else _processSelectedInvoices.delete(id);
+  } else {
+    if (checked) _processSelectedTxIds.add(id); else _processSelectedTxIds.delete(id);
+  }
+}
+
 function confirmProcessPayments() {
-  const ids = Array.from(_processSelectedIds);
-  if (ids.length === 0) { showToast('Nenhum item selecionado', 'error'); return; }
-  Finance.processPayments(ids);
-  showToast(`${ids.length} item(s) processado(s)!`, 'success');
+  const txIds = Array.from(_processSelectedTxIds);
+  const invoiceKeys = Array.from(_processSelectedInvoices);
+  if (txIds.length === 0 && invoiceKeys.length === 0) { showToast('Nenhum item selecionado', 'error'); return; }
+
+  if (txIds.length > 0) Finance.processPayments(txIds);
+
+  invoiceKeys.forEach(key => {
+    const [cardId, yearStr, monthStr] = key.split('::');
+    const year  = Number(yearStr);
+    const month = Number(monthStr);
+    const cards = Storage.getCards();
+    const card  = cards.find(c => c.id === cardId) || DEFAULT_CARD;
+    Finance.markInvoicePaid(year, month, card);
+  });
+
+  const total = txIds.length + invoiceKeys.length;
+  showToast(`${total} item(s) processado(s)!`, 'success');
   closeModal('process-modal');
   refreshAll();
   renderHomeBalance();
