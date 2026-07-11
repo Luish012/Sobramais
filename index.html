@@ -1,795 +1,1806 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SobraMais</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
-  <meta name="theme-color" content="#1a6b3c" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="SobraMais" />
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
+'use strict';
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- LOADING                                                              -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-loading" class="auth-screen" style="display:flex">
-  <div class="spinner"></div>
-</div>
+// ─── UTILITY ─────────────────────────────────────────────────────────────────
+function fmtCurrency(val) {
+  return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function fmtDate(str) {
+  if (!str) return '';
+  const [y, m, d] = str.split('-');
+  return `${d}/${m}/${y}`;
+}
+function fmtPayment(method) {
+  const map = { pix:'Pix', credito:'Crédito', debito:'Débito', dinheiro:'Dinheiro', transferencia:'Transferência', boleto:'Boleto' };
+  return map[method] || method;
+}
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function todayIso() { return new Date().toISOString().split('T')[0]; }
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- LOGIN                                                                -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-login" class="auth-screen" style="display:none">
-  <div class="auth-card">
-    <div class="auth-logo">💰</div>
-    <h1 class="auth-title">Entrar</h1>
-    <p class="auth-sub">Acesse seu controle financeiro</p>
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type ? `show ${type}` : 'show';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 2600);
+}
 
-    <div class="form-group">
-      <label class="form-label">E-mail</label>
-      <input id="login-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">Senha</label>
-      <input id="login-password" class="form-input" type="password" placeholder="••••••" autocomplete="current-password" />
-    </div>
-    <div id="login-error" class="auth-error"></div>
-    <button id="login-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Entrar</button>
+// ─── CONFIRM ─────────────────────────────────────────────────────────────────
+let _confirmCb = null;
+function confirmDialog(msg, cb) {
+  document.getElementById('confirm-msg').textContent = msg;
+  document.getElementById('confirm-overlay').classList.add('open');
+  _confirmCb = cb;
+}
 
-    <div class="auth-links">
-      <button id="go-forgot" class="auth-link">Esqueci minha senha</button>
-      <span class="auth-sep">·</span>
-      <button id="go-signup" class="auth-link">Criar conta</button>
-    </div>
-  </div>
-</div>
+// ─── STATE ────────────────────────────────────────────────────────────────────
+const _today = new Date();
+const State = {
+  view: 'loading',
+  tab: 'overview',
+  year: _today.getFullYear(),
+  month: _today.getMonth(),
+  expFilter: 'all',
+  expSubFilter: 'once',
+  incFilter: 'all',
+  cardSubFilter: 'once',
+  editTxId: null,
+  editGoalId: null,
+  selectedCardId: null,
+  editCardId: null,
+};
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- CADASTRO                                                             -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-signup" class="auth-screen" style="display:none">
-  <div class="auth-card">
-    <div class="auth-logo">💰</div>
-    <h1 class="auth-title">Criar Conta</h1>
-    <p class="auth-sub">7 dias grátis · Sem compromisso</p>
+// ─── VIEW MANAGEMENT ─────────────────────────────────────────────────────────
+function showView(v) {
+  State.view = v;
+  const allViews = [
+    'view-loading','view-login','view-signup','view-forgot-pw',
+    'view-confirm-email','view-reset-pw','view-subscription',
+    'view-home','view-dashboard',
+  ];
+  allViews.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const target = document.getElementById('view-' + v);
+  if (target) target.style.display = 'flex';
 
-    <div class="form-group">
-      <label class="form-label">Nome Completo</label>
-      <input id="signup-name" class="form-input" type="text" placeholder="Seu nome completo" autocomplete="name" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">CPF</label>
-      <input id="signup-cpf" class="form-input" type="text" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" autocomplete="off" oninput="Subscription.maskCpf(this)" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">E-mail</label>
-      <input id="signup-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">Senha</label>
-      <input id="signup-password" class="form-input" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
-    </div>
-    <div class="form-group">
-      <label class="form-label">Confirmar Senha</label>
-      <input id="signup-confirm" class="form-input" type="password" placeholder="Repita a senha" autocomplete="new-password" />
-    </div>
-    <div id="signup-error" class="auth-error"></div>
-    <button id="signup-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Criar Conta — 7 dias grátis</button>
+  if (v === 'dashboard') {
+    showTab(State.tab || 'overview');
+    refreshAll();
+  }
+  if (v === 'home') {
+    renderHomeGreeting();
+    renderHomeTrial();
+    renderHomeBalance();
+    renderHomeAlerts();
+  }
+}
 
-    <div class="auth-links">
-      <button id="go-login-from-signup" class="auth-link">Já tenho conta — Entrar</button>
-    </div>
-  </div>
-</div>
+// ─── NAVIGATION ───────────────────────────────────────────────────────────────
+function showTab(t) {
+  State.tab = t;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.tab === t));
+  refreshTab(t);
+}
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- CONFIRMAR E-MAIL                                                     -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-confirm-email" class="auth-screen" style="display:none">
-  <div class="auth-card" style="text-align:center">
-    <div style="font-size:3rem;margin-bottom:1rem">📧</div>
-    <h1 class="auth-title">Confirme seu e-mail</h1>
-    <p class="auth-sub" style="max-width:320px;margin:0 auto 1.5rem">
-      Enviamos um link de confirmação para o seu e-mail.<br>
-      Clique no link e depois faça login.
-    </p>
-    <button class="btn btn-outline" onclick="showAuthView('login')">Ir para Login</button>
-  </div>
-</div>
+function refreshAll() {
+  updateMonthLabel();
+  refreshTab(State.tab);
+}
+function refreshTab(t) {
+  if (t === 'overview')  renderOverview();
+  else if (t === 'expenses') renderExpenses();
+  else if (t === 'income')   renderIncome();
+  else if (t === 'cards')    renderCardTab();
+  else if (t === 'goals')    renderGoals();
+  else if (t === 'reports')  refreshReports();
+}
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- RECUPERAR SENHA                                                      -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-forgot-pw" class="auth-screen" style="display:none">
-  <div class="auth-card">
-    <div class="auth-logo">🔑</div>
-    <h1 class="auth-title">Recuperar Senha</h1>
-    <p class="auth-sub">Enviaremos um link para redefinir sua senha</p>
+// ─── MONTH NAVIGATION ────────────────────────────────────────────────────────
+function updateMonthLabel() {
+  document.getElementById('month-label').textContent = MONTHS_PT[State.month] + '/' + State.year;
+}
+function prevMonth() {
+  if (State.month === 0) { State.month = 11; State.year--; } else State.month--;
+  refreshAll();
+}
+function nextMonth() {
+  if (State.month === 11) { State.month = 0; State.year++; } else State.month++;
+  refreshAll();
+}
 
-    <div id="forgot-form">
-      <div class="form-group">
-        <label class="form-label">E-mail</label>
-        <input id="forgot-email" class="form-input" type="email" placeholder="seu@email.com" autocomplete="email" />
+// ─── HOME GREETING ───────────────────────────────────────────────────────────
+const _FRASES = [
+  'Hoje é um ótimo dia para economizar.',
+  'Cada real bem cuidado vale muito.',
+  'Seu futuro financeiro começa hoje.',
+  'Controle hoje. Tranquilidade amanhã.',
+  'Pequenos hábitos geram grandes resultados.',
+  'Quem controla o dinheiro controla o futuro.',
+  'Organização gera liberdade.',
+  'Planejar hoje é conquistar amanhã.',
+  'Economizar é investir em você.',
+  'Grandes resultados começam com pequenas decisões.',
+  'Dinheiro controlado é dinheiro multiplicado.',
+  'A disciplina financeira é o caminho para a liberdade.',
+  'Cuide bem do que você tem e conquiste o que quer.',
+  'Um orçamento bem feito é seu maior aliado.',
+  'Cada despesa registrada é um passo para o controle.',
+  'O segredo das finanças é a consistência.',
+  'Conhecer seus gastos é o primeiro passo para prosperar.',
+  'Hoje você planta, amanhã você colhe.',
+  'Sua riqueza começa na organização do dia a dia.',
+  'Pequenas economias de hoje criam grandes sonhos amanhã.',
+];
+
+function renderHomeGreeting() {
+  const nameEl   = document.getElementById('home-greeting-name');
+  const phraseEl = document.getElementById('home-greeting-phrase');
+  if (!nameEl) return;
+
+  const hour = new Date().getHours();
+  const period = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
+
+  const fullName   = Auth.currentUser?.user_metadata?.name || '';
+  const firstName  = fullName.trim().split(/\s+/)[0] || '';
+  nameEl.textContent = firstName ? `${period}, ${firstName} 👋` : 'Olá! 👋';
+
+  if (phraseEl) {
+    const frase = _FRASES[Math.floor(Math.random() * _FRASES.length)];
+    phraseEl.textContent = frase;
+  }
+}
+
+// ─── HOME TRIAL BANNER ───────────────────────────────────────────────────────
+function renderHomeTrial() {
+  const bannerEl = document.getElementById('home-trial-banner');
+  if (!bannerEl) return;
+
+  const sub   = Auth.currentSubscription;
+  const today = new Date().toISOString().split('T')[0];
+
+  if (sub?.status === 'trial' && sub?.end_date >= today) {
+    const end    = new Date(sub.end_date + 'T00:00:00');
+    const now    = new Date();
+    now.setHours(0,0,0,0);
+    const diffMs   = end - now;
+    const diffDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    const [y,m,d]  = sub.end_date.split('-');
+    bannerEl.innerHTML = `🎁 <strong>Teste grátis</strong> · ${diffDays === 0 ? 'Termina hoje' : `Restam ${diffDays} dia${diffDays !== 1 ? 's' : ''}`} (até ${d}/${m}/${y})`;
+    bannerEl.style.display = '';
+  } else {
+    bannerEl.style.display = 'none';
+  }
+}
+
+// ─── HOME ALERTS ─────────────────────────────────────────────────────────────
+function renderHomeAlerts() {
+  const alertsEl = document.getElementById('home-alerts');
+  if (!alertsEl) return;
+
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+
+  // Lembretes individuais — excluir compras de crédito (pertencem à fatura)
+  const txReminders = Finance.getReminders()
+    .filter(r => r.tx.paymentMethod !== 'credito');
+
+  // Faturas de cartão próximas do vencimento — uma linha por cartão
+  const allCards = Storage.getCards();
+  const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
+  const cardAlerts = cardsToCheck.map(card => {
+    const invoice = Finance.getCardInvoice(y, m, card);
+    if (invoice.total <= 0 || invoice.allPaid) return null;
+    const maxDay    = new Date(y, m + 1, 0).getDate();
+    const invDay    = Math.min(card.dueDay, maxDay);
+    const dueDateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(invDay).padStart(2, '0')}`;
+    const status    = getDueStatus(dueDateStr);
+    if (!['overdue', 'today', 'tomorrow'].includes(status)) return null;
+    return { card, invoice, status, dueDateStr };
+  }).filter(Boolean).sort((a, b) => a.dueDateStr > b.dueDateStr ? 1 : -1);
+
+  if (txReminders.length === 0 && cardAlerts.length === 0) {
+    alertsEl.style.display = 'none';
+    return;
+  }
+
+  alertsEl.style.display = '';
+
+  const labelFor = s => s === 'overdue' ? 'Vencida' : s === 'today' ? 'Vence hoje' : 'Vence amanhã';
+  const dotFor   = s => s === 'overdue' ? 'var(--destructive)' : s === 'today' ? 'hsl(38,92%,50%)' : 'hsl(38,80%,60%)';
+
+  const cardRows = cardAlerts.map(({ card, invoice, status }) => {
+    const count = invoice.transactions.length;
+    return `<div class="reminder-row">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotFor(status)};flex-shrink:0;display:inline-block"></span>
+        <span class="reminder-text">💳 ${esc(card.name)} <span style="font-size:0.72rem;color:var(--muted-fg);font-weight:400">(${count} compra${count !== 1 ? 's' : ''})</span></span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${labelFor(status)}</span>
+        <span class="reminder-amount">${fmtCurrency(invoice.total)}</span>
+      </div>`;
+  }).join('');
+
+  const txRows = txReminders.slice(0, 5).map(r => {
+    return `<div class="reminder-row">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dotFor(r.status)};flex-shrink:0;display:inline-block"></span>
+        <span class="reminder-text">${esc(r.tx.description)}</span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${labelFor(r.status)}</span>
+        <span class="reminder-amount">${fmtCurrency(r.tx.amount)}</span>
+      </div>`;
+  }).join('');
+
+  alertsEl.innerHTML =
+    `<div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">⚠ Atenção</div>` +
+    cardRows + txRows;
+}
+
+// ─── HOME BALANCE ─────────────────────────────────────────────────────────────
+function renderHomeBalance() {
+  const balEl = document.getElementById('home-balance-card');
+  if (!balEl) return;
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+  const saldo   = Finance.calcSaldoDisponivel(y, m);
+  const previsao = Finance.calcPrevisao(y, m);
+  const saldoEl  = document.getElementById('home-saldo-amount');
+  const prevEl   = document.getElementById('home-previsao-amount');
+  if (saldoEl) {
+    saldoEl.textContent = fmtCurrency(saldo);
+    saldoEl.style.color = saldo   >= 0 ? 'var(--success)' : 'var(--destructive)';
+  }
+  if (prevEl) {
+    prevEl.textContent = fmtCurrency(previsao);
+    prevEl.style.color = previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
+  }
+  balEl.style.display = '';
+  renderHomeCashFlow();
+}
+
+// ─── CASH FLOW FORECAST (compartilhado: Início + Painel Financeiro › Visão Geral) ──
+// Uma única função de renderização usada pelas duas telas, ambas consumindo
+// exatamente Finance.calcCashFlowForecast(year, month) — a mesma função e
+// regra de cálculo, sem duplicação de lógica entre as telas.
+function buildCashFlowCardHtml(cf) {
+  const ds = str => {
+    if (!str) return '';
+    const [, mm, dd] = str.split('-');
+    return `${dd}/${mm}`;
+  };
+
+  const periodMsg = cf.firstNegativeDate
+    ? (cf.recoveredDate
+        ? `Seu saldo pode ficar negativo entre ${ds(cf.firstNegativeDate)} e ${ds(cf.recoveredDate)}.`
+        : `Seu saldo pode ficar negativo a partir de ${ds(cf.firstNegativeDate)}.`)
+    : 'Risco de saldo negativo detectado.';
+
+  const detailRows = cf.events.map(ev => {
+    const amtColor = ev.amount >= 0 ? 'var(--success)' : 'var(--destructive)';
+    const balColor = ev.balanceAfter >= 0 ? 'var(--success)' : 'var(--destructive)';
+    const sign     = ev.amount >= 0 ? '+' : '−';
+    const absAmt   = fmtCurrency(Math.abs(ev.amount));
+    return `<div style="padding:0.55rem 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem">
+        <span style="font-size:0.82rem;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.label)}</span>
+        <span style="font-size:0.84rem;font-weight:600;color:${amtColor};white-space:nowrap">${sign} ${absAmt}</span>
       </div>
-      <div id="forgot-error" class="auth-error"></div>
-      <button id="forgot-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Enviar Link</button>
-    </div>
-
-    <div id="forgot-success" class="auth-success" style="display:none">
-      ✅ Link enviado! Verifique seu e-mail.
-    </div>
-
-    <div class="auth-links">
-      <button id="go-login-from-forgot" class="auth-link">← Voltar ao login</button>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- REDEFINIR SENHA (após clicar no link do e-mail)                     -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-reset-pw" class="auth-screen" style="display:none">
-  <div class="auth-card">
-    <div class="auth-logo">🔒</div>
-    <h1 class="auth-title">Nova Senha</h1>
-
-    <div id="reset-form">
-      <div class="form-group">
-        <label class="form-label">Nova Senha</label>
-        <input id="reset-pw1" class="form-input" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      <div style="display:flex;justify-content:space-between;margin-top:0.1rem">
+        <span style="font-size:0.71rem;color:var(--muted-fg)">${ds(ev.date)}</span>
+        <span style="font-size:0.71rem;color:${balColor}">Saldo: ${fmtCurrency(ev.balanceAfter)}</span>
       </div>
-      <div class="form-group">
-        <label class="form-label">Confirmar Nova Senha</label>
-        <input id="reset-pw2" class="form-input" type="password" placeholder="Repita a senha" autocomplete="new-password" />
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="cashflow-toggle" style="display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;gap:0.5rem">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.78rem;font-weight:700;color:var(--destructive);letter-spacing:0.04em;text-transform:uppercase">⚠ Risco de Saldo Negativo</div>
+        <div style="font-size:0.76rem;color:var(--muted-fg);margin-top:0.2rem">${periodMsg}</div>
       </div>
-      <div id="reset-error" class="auth-error"></div>
-      <button id="reset-btn" class="btn btn-primary form-btn-full" style="margin-top:0.5rem">Salvar Nova Senha</button>
+      <span class="cashflow-chevron" style="font-size:1rem;color:var(--muted-fg);transition:transform 0.2s;flex-shrink:0;margin-top:0.1rem">▾</span>
     </div>
-
-    <div id="reset-success" class="auth-success" style="display:none">
-      ✅ Senha alterada! Redirecionando para o login…
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- ASSINATURA                                                           -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-subscription" class="auth-screen" style="display:none">
-  <div class="auth-card">
-    <div class="auth-logo">📊</div>
-    <h1 id="sub-title" class="auth-title">Assinatura necessária</h1>
-    <p id="sub-msg" class="auth-sub">Assine o plano para começar a controlar suas finanças.</p>
-    <div id="sub-end-date" class="auth-sub" style="display:none;color:var(--muted-fg);margin-top:-0.5rem"></div>
-
-    <!-- Card do plano -->
-    <div id="sub-plan-card" class="plan-card">
-      <div class="plan-name">Plano Controle Financeiro</div>
-      <div class="plan-price">R$ 9,99 <span>/mês</span></div>
-      <ul class="plan-features">
-        <li>✓ Despesas e receitas ilimitadas</li>
-        <li>✓ Cartão de crédito e faturas</li>
-        <li>✓ Recorrências e parcelamentos</li>
-        <li>✓ Metas de poupança</li>
-        <li>✓ Dados salvos na nuvem</li>
-        <li>✓ Acesso de qualquer dispositivo</li>
-      </ul>
-    </div>
-
-    <div id="sub-cpf-area" class="form-group" style="text-align:left;margin-top:1rem">
-      <label class="form-label" for="sub-cpfcnpj">CPF ou CNPJ</label>
-      <input id="sub-cpfcnpj" class="form-input" type="text" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off" maxlength="18" oninput="Subscription.maskCpfCnpj(this)" />
-    </div>
-
-    <div id="sub-error" class="auth-error"></div>
-    <button id="sub-btn" class="btn btn-gold form-btn-full">Assinar — R$ 9,99/mês</button>
-
-    <!-- Área de pagamento (exibida após clicar em Assinar) -->
-    <div id="sub-payment-area" style="display:none;margin-top:1.25rem;text-align:center">
-      <p style="font-size:0.85rem;color:var(--muted-fg);margin-bottom:0.75rem">
-        Uma nova aba foi aberta com o link de pagamento.<br>
-        Após pagar, clique no botão abaixo.
-      </p>
-      <a id="sub-payment-link" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:inline-flex;margin-bottom:0.75rem;word-break:break-all">
-        Abrir link de pagamento
-      </a><br>
-      <button id="sub-check-btn" class="btn btn-outline form-btn-full">Já paguei — verificar status</button>
-    </div>
-
-    <div style="text-align:center;margin-top:1rem">
-      <button id="sub-logout-btn" class="auth-link">Sair da conta</button>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- HOME                                                                 -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-home" style="display:none;min-height:100dvh;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg)">
-  <div class="home-inner">
-
-    <!-- Saudação personalizada -->
-    <div id="home-greeting" class="home-greeting-block">
-      <div id="home-greeting-name" class="home-greeting-name">Olá! 👋</div>
-      <div id="home-greeting-phrase" class="home-greeting-phrase"></div>
-    </div>
-
-    <!-- Aviso de trial ativo -->
-    <div id="home-trial-banner" style="display:none;background:hsl(220,80%,96%);border:1px solid hsl(220,80%,75%);border-radius:var(--r-xl);padding:0.75rem 1rem;width:100%;box-sizing:border-box;text-align:center;font-size:0.82rem;color:hsl(220,60%,40%)"></div>
-
-    <!-- Saldo disponível + Previsão do mês -->
-    <div id="home-balance-card" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--r-xl);padding:1.25rem;text-align:center;width:100%;box-sizing:border-box">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-        <div>
-          <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted-fg);margin-bottom:0.3rem">Saldo Disponível</div>
-          <div id="home-saldo-amount" style="font-size:1.6rem;font-weight:600;letter-spacing:-0.03em">R$ 0,00</div>
-        </div>
-        <div>
-          <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão do Mês</div>
-          <div id="home-previsao-amount" style="font-size:1.6rem;font-weight:600;letter-spacing:-0.03em">R$ 0,00</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Avisos de contas vencidas / vencendo -->
-    <div id="home-alerts" style="display:none;background:var(--card);border:1px solid hsl(38,70%,80%);border-radius:var(--r-xl);padding:0.875rem 1.25rem"></div>
-
-    <!-- Fluxo de caixa previsto / alerta de saldo negativo -->
-    <div id="home-cashflow" style="display:none;background:var(--card);border:1px solid hsl(0,60%,80%);border-radius:var(--r-xl);padding:0.875rem 1.25rem"></div>
-
-    <button id="home-go-quick" class="home-card">
-      <div class="home-card-icon gold">+</div>
+    <div style="display:flex;gap:1.5rem;margin-top:0.6rem">
       <div>
-        <div class="home-card-title">Lançar Gasto</div>
-        <div class="home-card-sub">Registrar gasto rápido</div>
+        <div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;color:var(--muted-fg)">Menor saldo</div>
+        <div style="font-size:1rem;font-weight:700;color:var(--destructive)">${fmtCurrency(cf.minBalance)}</div>
       </div>
-    </button>
-
-    <button id="home-go-process" class="home-card">
-      <div class="home-card-icon" style="background:var(--dest-dim);color:var(--destructive)">⚡</div>
-      <div>
-        <div class="home-card-title">Receber / Pagar</div>
-        <div class="home-card-sub">Dar baixa em entradas e contas</div>
-      </div>
-    </button>
-
-    <button id="home-go-dashboard" class="home-card">
-      <div class="home-card-icon gray">▦</div>
-      <div>
-        <div class="home-card-title">Painel Financeiro</div>
-        <div class="home-card-sub">Visão completa das finanças</div>
-      </div>
-    </button>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- DASHBOARD                                                            -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="view-dashboard" style="display:none;flex-direction:column;height:100dvh;background:var(--bg)">
-
-  <!-- Sticky header -->
-  <header class="dash-header">
-    <div class="dash-header-inner">
-      <div style="display:flex;align-items:center;gap:1rem">
-        <button id="btn-back-home" class="btn-back">← Início</button>
-        <span class="dash-title">Painel Financeiro</span>
-      </div>
-      <div class="dash-header-actions">
-        <button id="btn-import" class="dash-header-btn" title="Importar backup">↑ Importar</button>
-        <button id="btn-export" class="dash-header-btn" title="Exportar backup">↓ Backup</button>
-        <button id="btn-account" class="dash-header-btn" title="Minha conta">👤 Conta</button>
-      </div>
+      ${cf.minDate ? `<div>
+        <div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;color:var(--muted-fg)">Data crítica</div>
+        <div style="font-size:1rem;font-weight:700;color:var(--destructive)">${ds(cf.minDate)}</div>
+      </div>` : ''}
     </div>
-  </header>
+    <div class="cashflow-detail" style="display:none;margin-top:0.75rem">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted-fg);margin-bottom:0.3rem">Fluxo Previsto</div>
+      <div style="max-height:300px;overflow-y:auto">${detailRows}</div>
+    </div>`;
+}
 
-  <!-- Month selector -->
-  <div class="month-bar">
-    <button id="btn-prev-month" class="month-nav-btn">◀</button>
-    <span id="month-label" class="month-label">—</span>
-    <button id="btn-next-month" class="month-nav-btn">▶</button>
-  </div>
+// Renderiza (ou esconde) o card de fluxo previsto dentro de `cfEl` para o
+// (year, month) informado. Usado tanto pela tela inicial quanto pela Visão
+// Geral — cada uma passa o mês que faz sentido para ela, mas ambas chamam
+// exatamente a mesma Finance.calcCashFlowForecast.
+function renderCashFlowCard(cfEl, year, month) {
+  if (!cfEl) return;
 
-  <!-- Tab navigation -->
-  <nav class="tab-nav">
-    <button class="tab-btn active" data-tab="overview">Visão Geral</button>
-    <button class="tab-btn" data-tab="expenses">Despesas</button>
-    <button class="tab-btn" data-tab="income">Entradas</button>
-    <button class="tab-btn" data-tab="cards">Cartão</button>
-    <button class="tab-btn" data-tab="goals">Poupança</button>
-    <button class="tab-btn" data-tab="reports">Relatórios</button>
-  </nav>
+  const cf = Finance.calcCashFlowForecast(year, month);
 
-  <div class="dashboard-scroll">
+  if (!cf.hasNegativePeriod) {
+    cfEl.style.display = 'none';
+    cfEl.innerHTML = '';
+    return;
+  }
 
-  <!-- ── Visão Geral ─────────────────────────────────────────────── -->
-  <div class="tab-pane active" data-tab="overview">
-    <div class="pane-inner">
-      <div class="balance-card">
-        <div id="saldo-section" style="display:none;width:100%;text-align:center;padding-bottom:1.25rem;margin-bottom:1.25rem;border-bottom:1px solid var(--border)">
-          <div class="balance-label">Saldo Disponível</div>
-          <div id="saldo-amount" class="balance-amount positive" style="font-size:2.25rem">R$ 0,00</div>
-        </div>
-        <div class="balance-label">Previsão do Mês</div>
-        <div id="balance-amount" class="balance-amount positive">R$ 0,00</div>
-        <div id="balance-sub" class="balance-sub">—</div>
+  cfEl.style.display = '';
+  cfEl.innerHTML = buildCashFlowCardHtml(cf);
+
+  const toggleEl = cfEl.querySelector('.cashflow-toggle');
+  if (toggleEl) toggleEl.addEventListener('click', () => toggleCashFlowCard(cfEl));
+}
+
+function toggleCashFlowCard(cfEl) {
+  const detail  = cfEl.querySelector('.cashflow-detail');
+  const chevron = cfEl.querySelector('.cashflow-chevron');
+  if (!detail) return;
+  const open = detail.style.display === 'none';
+  detail.style.display = open ? '' : 'none';
+  if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ─── HOME CASH FLOW FORECAST ──────────────────────────────────────────────────
+function renderHomeCashFlow() {
+  const cfEl = document.getElementById('home-cashflow');
+  if (!cfEl) return;
+
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+
+  // Apenas para o mês vigente (comportamento original mantido)
+  if (State.year !== y || State.month !== m) {
+    cfEl.style.display = 'none';
+    return;
+  }
+
+  renderCashFlowCard(cfEl, y, m);
+}
+
+// ─── VISÃO GERAL CASH FLOW FORECAST ───────────────────────────────────────────
+// Mesmo card e mesma função de cálculo da tela inicial, mas acompanhando o
+// mês selecionado no Painel Financeiro (State.year / State.month).
+function renderOverviewCashFlow() {
+  const cfEl = document.getElementById('overview-cashflow');
+  renderCashFlowCard(cfEl, State.year, State.month);
+}
+
+// ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
+function renderOverview() {
+  const sum     = Finance.calcSummary(State.year, State.month);
+  const previsao = Finance.calcPrevisao(State.year, State.month);
+  const reminders = Finance.getReminders();
+
+  const today = new Date();
+  const isCurrentMonth = State.year === today.getFullYear() && State.month === today.getMonth();
+  const saldoSection = document.getElementById('saldo-section');
+  if (isCurrentMonth && saldoSection) {
+    const saldo = Finance.calcSaldoDisponivel(State.year, State.month);
+    const saldoEl = document.getElementById('saldo-amount');
+    saldoEl.textContent = fmtCurrency(saldo);
+    saldoEl.className = 'balance-amount ' + (saldo >= 0 ? 'positive' : 'negative');
+    saldoSection.style.display = '';
+  } else if (saldoSection) {
+    saldoSection.style.display = 'none';
+  }
+
+  const balEl = document.getElementById('balance-amount');
+  balEl.textContent = fmtCurrency(previsao);
+  balEl.className = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
+  document.getElementById('balance-sub').textContent =
+    'Entradas ' + fmtCurrency(sum.totalIncome) + ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+
+  document.getElementById('sum-income').textContent   = fmtCurrency(sum.totalIncome);
+  document.getElementById('sum-expenses').textContent = fmtCurrency(sum.totalExpenses);
+  document.getElementById('sum-paid').textContent     = fmtCurrency(sum.totalPaid);
+  document.getElementById('sum-pending').textContent  = fmtCurrency(sum.totalPending);
+
+  renderOverviewCashFlow();
+
+  const reminderEl = document.getElementById('reminders-section');
+  if (reminders.length === 0) {
+    reminderEl.style.display = 'none';
+  } else {
+    reminderEl.style.display = '';
+    document.getElementById('reminders-list').innerHTML = reminders.slice(0, 5).map(r => {
+      const label = r.status === 'overdue' ? 'Vencida' : r.status === 'today' ? 'Vence hoje' : 'Vence amanhã';
+      return `<div class="reminder-row">
+        <span class="reminder-dot ${r.status}"></span>
+        <span class="reminder-text">${esc(r.tx.description)}</span>
+        <span style="font-size:0.78rem;color:var(--muted-fg)">${label}</span>
+        <span class="reminder-amount">${fmtCurrency(r.tx.amount)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  renderQuickList();
+}
+
+function renderQuickList() {
+  const quick = Storage.getQuickExpenses()
+    .filter(q => {
+      if (q.paymentMethod === 'credito') return false;
+      const d = new Date(q.date + 'T00:00:00');
+      return d.getFullYear() === State.year && d.getMonth() === State.month;
+    })
+    .slice(0, 50);
+  const el = document.getElementById('quick-list');
+  if (!el) return;
+  if (quick.length === 0) {
+    el.innerHTML = '<p style="text-align:center;color:var(--muted-fg);font-size:0.875rem;padding:1.5rem 0">Nenhum gasto rápido neste mês.<br>Use o botão acima para lançar.</p>';
+    return;
+  }
+  el.innerHTML = quick.map(q => `
+    <div class="quick-row">
+      <div class="quick-info">
+        <div class="quick-desc">${esc(q.description)}</div>
+        <div class="quick-meta">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)}</div>
       </div>
-      <div class="summary-grid">
-        <div class="summary-card"><div class="summary-card-label">Entradas</div><div id="sum-income" class="summary-card-value">R$ 0,00</div></div>
-        <div class="summary-card"><div class="summary-card-label">Saídas</div><div id="sum-expenses" class="summary-card-value">R$ 0,00</div></div>
-        <div class="summary-card"><div class="summary-card-label">Pago</div><div id="sum-paid" class="summary-card-value primary">R$ 0,00</div></div>
-        <div class="summary-card"><div class="summary-card-label">Pendente</div><div id="sum-pending" class="summary-card-value muted">R$ 0,00</div></div>
+      <div class="quick-right">
+        <span class="quick-amount">${fmtCurrency(q.amount)}</span>
+        <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
       </div>
-      <div id="reminders-section" class="reminders-section" style="display:none;margin-top:1.25rem">
-        <div style="font-size:0.8rem;font-weight:600;color:hsl(38,70%,40%);margin-bottom:0.5rem;letter-spacing:0.04em;text-transform:uppercase">Atenção</div>
-        <div id="reminders-list"></div>
-      </div>
-      <div class="section-header" style="margin-top:1.5rem">
-        <div><div class="section-title">Gastos Rápidos</div><div class="section-sub">Lançamentos sem categorização</div></div>
-        <button id="btn-add-quick" class="btn btn-outline-primary btn-sm">+ Novo</button>
-      </div>
-      <div id="quick-list" class="quick-list"></div>
+    </div>`).join('');
+}
+
+// ─── EXPENSES TAB ────────────────────────────────────────────────────────────
+function quickExpenseRow(q) {
+  return `<div class="tx-row is-paid">
+    <div class="tx-header-row">
+      <div class="tx-icon paid">✓</div>
+      <div class="tx-desc">${esc(q.description)}</div>
+      <div class="tx-amount paid">${fmtCurrency(Number(q.amount))}</div>
     </div>
-  </div>
-
-  <!-- ── Despesas ──────────────────────────────────────────────── -->
-  <div class="tab-pane" data-tab="expenses">
-    <div class="pane-inner">
-      <div class="section-header">
-        <div><div class="section-title">Suas Contas</div></div>
-        <button id="btn-add-expense" class="btn btn-outline-primary btn-sm">+ Nova Despesa</button>
-      </div>
-      <div class="expense-bar">
-        <div class="exp-bar-item"><div class="exp-bar-label">Total</div><div id="exp-total" class="exp-bar-value">R$ 0,00</div></div>
-        <div class="exp-bar-item"><div class="exp-bar-label">Pago</div><div id="exp-paid2" class="exp-bar-value primary">R$ 0,00</div></div>
-        <div class="exp-bar-item"><div class="exp-bar-label">Pendente</div><div id="exp-pend2" class="exp-bar-value destructive">R$ 0,00</div></div>
-      </div>
-      <div class="filter-row" id="exp-subtype-row">
-        <button class="filter-pill active" data-expsubtypefilter="once">Avulsos</button>
-        <button class="filter-pill" data-expsubtypefilter="installment">Parcelados</button>
-        <button class="filter-pill" data-expsubtypefilter="recurring">Recorrentes</button>
-        <button class="filter-pill" data-expsubtypefilter="all">Todos</button>
-      </div>
-      <div class="filter-row">
-        <button class="filter-pill active" data-expfilter="all">Todas</button>
-        <button class="filter-pill" data-expfilter="pending">Pendentes</button>
-        <button class="filter-pill" data-expfilter="paid">Pagas</button>
-        <button class="filter-pill" data-expfilter="late">Vencidas</button>
-      </div>
-      <div id="expenses-list" class="tx-list"></div>
+    <div class="tx-date-line">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)}</div>
+    <div class="tx-badges"><span class="tag">Avulso</span></div>
+    <div class="tx-actions">
+      <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
     </div>
-  </div>
+  </div>`;
+}
 
-  <!-- ── Entradas ───────────────────────────────────────────────── -->
-  <div class="tab-pane" data-tab="income">
-    <div class="pane-inner">
-      <div class="section-header">
-        <div class="section-title">Entradas no Mês</div>
-        <div style="display:flex;gap:0.5rem">
-          <button id="btn-add-income-2" class="btn btn-outline btn-sm">+ Recorrente</button>
-          <button id="btn-add-income" class="btn btn-gold btn-sm">+ Nova Entrada</button>
-        </div>
-      </div>
-      <div class="income-bar">
-        <div class="income-bar-item"><div class="ib-label">Total Esperado</div><div id="inc-total" class="ib-value primary">R$ 0,00</div></div>
-        <div class="income-bar-item"><div class="ib-label">Recebido</div><div id="inc-received" class="ib-value">R$ 0,00</div></div>
-      </div>
-      <div class="filter-row">
-        <button class="filter-pill active" data-incfilter="all">Todas</button>
-        <button class="filter-pill" data-incfilter="received">Recebidas</button>
-        <button class="filter-pill" data-incfilter="pending">Pendentes</button>
-      </div>
-      <div id="income-list" class="tx-list"></div>
-    </div>
-  </div>
+function renderExpenses() {
+  let txs = Finance.getByCompetency(State.year, State.month, 'expense');
 
-  <!-- ── Cartão ─────────────────────────────────────────────────── -->
-  <div class="tab-pane" data-tab="cards">
-    <div class="pane-inner">
+  txs = txs.filter(t => t.paymentMethod !== 'credito');
 
-      <!-- Seletor de cartão + botão novo cartão -->
-      <div class="section-header" style="margin-bottom:1rem">
-        <div style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0">
-          <select id="card-selector" class="form-select" style="flex:1;min-width:0" onchange="selectCard(this.value)"></select>
-          <button id="btn-add-card" class="btn btn-outline btn-sm" title="Novo cartão" style="white-space:nowrap;flex-shrink:0">+ Novo</button>
-        </div>
-        <button id="btn-edit-card" class="btn-icon" title="Editar cartão selecionado" style="flex-shrink:0;margin-left:0.25rem">✏</button>
-      </div>
+  if (State.expSubFilter === 'once')             txs = txs.filter(t => t.subtype === 'once');
+  else if (State.expSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
+  else if (State.expSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
 
-      <!-- Resumo da fatura -->
-      <div class="balance-card" style="margin-bottom:1rem">
-        <div class="balance-label" id="card-month-label">Fatura —</div>
-        <div id="card-due-label" style="font-size:0.75rem;color:var(--muted-fg);margin-bottom:0.25rem">—</div>
-        <div id="card-total" class="balance-amount" style="color:var(--destructive)">R$ 0,00</div>
-        <div id="card-invoice-status" class="balance-sub">—</div>
-      </div>
+  if (State.expFilter === 'pending') txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) !== 'overdue');
+  else if (State.expFilter === 'paid')  txs = txs.filter(t => t.paid);
+  else if (State.expFilter === 'late')  txs = txs.filter(t => !t.paid && getDueStatus(t.dueDate) === 'overdue');
 
-      <div id="card-pay-section" style="display:none;margin-bottom:1rem">
-        <button id="btn-pay-invoice" class="btn btn-gold form-btn-full">Pagar Fatura</button>
-      </div>
+  let quickRows = '';
+  if (State.expSubFilter === 'once' || State.expSubFilter === 'all') {
+    const quickItems = Storage.getQuickExpenses()
+      .filter(q => {
+        if (q.paymentMethod === 'credito') return false;
+        const d = new Date(q.date + 'T00:00:00');
+        return d.getFullYear() === State.year && d.getMonth() === State.month;
+      });
 
-      <div class="filter-row" id="card-subtype-row">
-        <button class="filter-pill active" data-cardsubtypefilter="once">Avulsos</button>
-        <button class="filter-pill" data-cardsubtypefilter="installment">Parcelados</button>
-        <button class="filter-pill" data-cardsubtypefilter="recurring">Recorrentes</button>
-        <button class="filter-pill" data-cardsubtypefilter="all">Todos</button>
-      </div>
-      <div id="card-invoice-list" class="tx-list"></div>
-    </div>
-  </div>
+    const statusFilter = State.expFilter;
+    const filteredQuick = statusFilter === 'pending' || statusFilter === 'late'
+      ? []
+      : quickItems;
 
-  <!-- ── Poupança ───────────────────────────────────────────────── -->
-  <div class="tab-pane" data-tab="goals">
-    <div class="pane-inner">
-      <div class="section-header">
-        <div class="section-title">Suas Metas</div>
-        <button id="btn-add-goal" class="btn btn-primary btn-sm">+ Nova Meta</button>
-      </div>
-      <div id="goals-list"></div>
-    </div>
-  </div>
+    filteredQuick.sort((a, b) => {
+      const da = a.createdAt || a.date || '';
+      const db = b.createdAt || b.date || '';
+      return db > da ? 1 : -1;
+    });
 
-  <div class="tab-pane" data-tab="reports">
-    <div class="pane-inner">
-      <!-- Navegação de mês -->
-      <div class="rpt-month-nav">
-        <button class="btn btn-ghost btn-sm" onclick="rptChangeMonth(-1)">‹</button>
-        <span id="rpt-month-label" class="rpt-month-txt"></span>
-        <button class="btn btn-ghost btn-sm" onclick="rptChangeMonth(1)">›</button>
-      </div>
-      <!-- KPIs -->
-      <div class="rpt-kpi-grid" id="rpt-summary"></div>
-      <!-- Gráfico + Lista (layout responsivo) -->
-      <div class="rpt-layout">
-        <div class="rpt-chart-wrap">
-          <canvas id="rpt-chart"></canvas>
-        </div>
-        <div class="rpt-cat-list" id="rpt-cat-list"></div>
-      </div>
-    </div>
-  </div>
+    quickRows = filteredQuick.map(q => quickExpenseRow(q)).join('');
+  }
 
-  </div><!-- end dashboard-scroll -->
-</div><!-- end view-dashboard -->
+  txs.sort((a, b) => {
+    const da = a.createdAt || a.dueDate || '';
+    const db = b.createdAt || b.dueDate || '';
+    return db > da ? 1 : -1;
+  });
 
+  const allTxs = Finance.getByCompetency(State.year, State.month, 'expense')
+    .filter(t => t.paymentMethod !== 'credito');
+  const allQuick = Storage.getQuickExpenses().filter(q => {
+    if (q.paymentMethod === 'credito') return false;
+    const d = new Date(q.date + 'T00:00:00');
+    return d.getFullYear() === State.year && d.getMonth() === State.month;
+  });
+  const totalAll  = allTxs.reduce((s, t) => s + t.amount, 0)
+                  + allQuick.reduce((s, q) => s + Number(q.amount), 0);
+  const totalPaid = allTxs.filter(t => t.paid).reduce((s, t) => s + t.amount, 0)
+                  + allQuick.reduce((s, q) => s + Number(q.amount), 0);
+  const totalPend = allTxs.filter(t => !t.paid).reduce((s, t) => s + t.amount, 0);
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Transação (Despesa / Entrada)                                 -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="tx-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span id="tx-modal-title" class="modal-title">Nova Despesa</span>
-      <button id="close-tx-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="tx-form" onsubmit="return false">
-        <div class="form-group">
-          <label class="form-label">Descrição</label>
-          <input id="tx-desc" class="form-input" type="text" placeholder="ex: Aluguel, Mercado…" autocomplete="off" />
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Valor (R$)</label>
-            <input id="tx-amount" class="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" id="tx-date-label">Data / Vencimento</label>
-            <input id="tx-duedate" class="form-input" type="date" />
-            <div id="tx-invoice-preview" style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem;display:none"></div>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Categoria</label>
-            <select id="tx-category" class="form-select"></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Forma de Pagamento</label>
-            <select id="tx-payment" class="form-select">
-              <option value="pix">Pix</option>
-              <option value="debito">Débito</option>
-              <option value="credito">Crédito</option>
-              <option value="dinheiro">Dinheiro</option>
-              <option value="transferencia">Transferência</option>
-              <option value="boleto">Boleto</option>
-            </select>
-          </div>
-        </div>
-        <!-- Seletor de cartão — visível apenas quando pagamento for crédito -->
-        <div id="tx-card-row" class="form-group" style="display:none">
-          <label class="form-label">💳 Cartão</label>
-          <select id="tx-card-select" class="form-select"></select>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Tipo</label>
-            <select id="tx-subtype" class="form-select">
-              <option value="once">Avulso</option>
-              <option value="recurring">Recorrente</option>
-              <option value="installment">Parcelado</option>
-            </select>
-          </div>
-          <div id="tx-installments-section" class="form-group" style="display:none">
-            <label class="form-label">Nº de Parcelas</label>
-            <input id="tx-installments" class="form-input" type="number" min="2" max="120" value="2" />
-          </div>
-        </div>
-        <div class="form-group" style="display:flex;align-items:center;gap:0.6rem;margin-top:0.25rem">
-          <input id="tx-paid" type="checkbox" style="width:18px;height:18px;accent-color:var(--primary)" />
-          <label for="tx-paid" class="form-label" style="margin:0;cursor:pointer">Marcar como pago/recebido</label>
-        </div>
-        <div class="form-footer">
-          <button id="tx-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+  document.getElementById('exp-total').textContent  = fmtCurrency(totalAll);
+  document.getElementById('exp-paid2').textContent  = fmtCurrency(totalPaid);
+  document.getElementById('exp-pend2').textContent  = fmtCurrency(totalPend);
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Gasto Rápido                                                  -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="quick-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span class="modal-title">Gasto Rápido</span>
-      <button id="close-quick-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <!-- Saldo disponível e previsão em destaque -->
-      <div id="quick-month-preview" style="display:none;padding:1rem;background:var(--muted);border-radius:var(--r);margin-bottom:1.25rem">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;text-align:center">
-          <div>
-            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Saldo disponível</div>
-            <div id="quick-saldo-amount" style="font-size:1.4rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
-          </div>
-          <div>
-            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted-fg);margin-bottom:0.3rem">Previsão</div>
-            <div id="quick-month-amount" style="font-size:1.4rem;font-weight:300;letter-spacing:-0.03em">R$ 0,00</div>
-          </div>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Digite o gasto</label>
-        <input id="quick-input" class="form-input" type="text"
-          placeholder="ex: Combustível 50 crédito"
-          autocomplete="off" />
-        <div class="helper-note" style="margin-top:0.5rem">
-          Formato: <strong>Descrição Valor Pagamento</strong><br>
-          Ex: <em>Mercado 120 débito</em> · <em>Lanche 35 pix</em> · <em>Farmácia 80 crédito</em>
-        </div>
-      </div>
-      <div id="quick-preview" style="display:none;background:var(--muted);border-radius:var(--r-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.875rem"></div>
-      <!-- Seletor de cartão — visível apenas quando pagamento for crédito -->
-      <div id="quick-card-row" style="display:none;margin-top:0.75rem">
-        <div class="form-group" style="margin-bottom:0">
-          <label class="form-label">💳 Cartão</label>
-          <select id="quick-card-select" class="form-select" onchange="updateQuickPreview()"></select>
-        </div>
-      </div>
-      <div id="quick-sim-preview" style="display:none;margin-top:0.75rem">
-        <div class="quick-sim-block">
-          <div class="quick-sim-item">
-            <div class="quick-sim-label">Saldo após lançamento</div>
-            <div id="quick-sim-saldo" class="quick-sim-value">R$ 0,00</div>
-          </div>
-          <div class="quick-sim-item" id="quick-sim-previsao-item">
-            <div class="quick-sim-label">Previsão após lançamento</div>
-            <div id="quick-sim-previsao" class="quick-sim-value">R$ 0,00</div>
-          </div>
-          <div class="quick-sim-item" id="quick-sim-fatura-item" style="display:none">
-            <div class="quick-sim-label" id="quick-sim-fatura-label">Impacto na fatura</div>
-            <div id="quick-sim-fatura" class="quick-sim-value">R$ 0,00</div>
-          </div>
-        </div>
-      </div>
-      <div class="form-footer">
-        <button id="quick-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
-      </div>
-    </div>
-  </div>
-</div>
+  const txsHtml = txs.map(t => txRow(t)).join('');
+  const combined = txsHtml + quickRows;
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Receber / Pagar                                               -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="process-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span class="modal-title">Receber / Pagar</span>
-      <button id="close-process-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <div id="process-list"></div>
-      <div class="form-footer">
-        <button id="process-confirm-btn" type="button" class="btn btn-primary form-btn-full">Confirmar</button>
-      </div>
-    </div>
-  </div>
-</div>
+  document.getElementById('expenses-list').innerHTML = combined.length === 0
+    ? emptyState('🧾', 'Nenhuma despesa', 'Sem despesas para este período.')
+    : combined;
+}
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Meta de Poupança                                              -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="goal-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span id="goal-modal-title" class="modal-title">Nova Meta</span>
-      <button id="close-goal-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="goal-form" onsubmit="return false">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Nome</label>
-            <input id="goal-name" class="form-input" type="text" placeholder="ex: Viagem, Reserva…" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Emoji</label>
-            <input id="goal-emoji" class="form-input" type="text" placeholder="🎯" maxlength="2" style="font-size:1.4rem;text-align:center" />
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Valor Alvo (R$)</label>
-            <input id="goal-target" class="form-input" type="number" step="0.01" min="1" placeholder="10000,00" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Já Guardado (R$)</label>
-            <input id="goal-saved" class="form-input" type="number" step="0.01" min="0" placeholder="0,00" />
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Prazo (opcional)</label>
-          <input id="goal-deadline" class="form-input" type="date" />
-        </div>
-        <div class="form-footer">
-          <button id="goal-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Meta</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+// ─── INCOME TAB ──────────────────────────────────────────────────────────────
+function renderIncome() {
+  let txs = Finance.getByCompetency(State.year, State.month, 'income');
+  if (State.incFilter === 'received') txs = txs.filter(t => t.paid);
+  else if (State.incFilter === 'pending') txs = txs.filter(t => !t.paid);
+  txs.sort((a, b) => (b.createdAt || '') > (a.createdAt || '') ? 1 : -1);
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Guardar na Meta                                               -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="addgoal-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span id="addgoal-modal-title" class="modal-title">Guardar Dinheiro</span>
-      <button id="close-addgoal-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="addgoal-form" onsubmit="return false">
-        <div class="form-group">
-          <label class="form-label">Valor a guardar (R$)</label>
-          <input id="addgoal-amount" class="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" />
-        </div>
-        <div class="form-footer">
-          <button id="addgoal-save-btn" type="button" class="btn btn-primary form-btn-full">Guardar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+  const all = Finance.getByCompetency(State.year, State.month, 'income');
+  document.getElementById('inc-total').textContent    = fmtCurrency(all.reduce((s, t) => s + t.amount, 0));
+  document.getElementById('inc-received').textContent = fmtCurrency(all.filter(t => t.paid).reduce((s, t) => s + t.amount, 0));
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Cartão de Crédito (Adicionar / Editar)                        -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="card-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span id="card-modal-title" class="modal-title">Novo Cartão</span>
-      <button id="close-card-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="card-form" onsubmit="return false">
-        <div class="form-group">
-          <label class="form-label">Nome do Cartão</label>
-          <input id="card-name" class="form-input" type="text" placeholder="ex: Cartão Nubank, Inter…" autocomplete="off" />
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Dia de Fechamento</label>
-            <input id="card-closing-day" class="form-input" type="number" min="1" max="31" placeholder="30" />
-            <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem">Último dia para compras entrarem na fatura atual</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Dia de Vencimento</label>
-            <input id="card-due-day" class="form-input" type="number" min="1" max="31" placeholder="8" />
-            <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.2rem">Dia em que a fatura vence todo mês</div>
+  document.getElementById('income-list').innerHTML = txs.length === 0
+    ? emptyState('💰', 'Nenhuma entrada', 'Sem entradas para este período.')
+    : txs.map(t => txRow(t)).join('');
+}
+
+// ─── CARTÕES — HELPERS ────────────────────────────────────────────────────────
+
+// Retorna o cartão selecionado (ou cria o padrão se não houver nenhum).
+function getSelectedCard() {
+  let cards = Storage.getCards();
+
+  // Garantir que existe pelo menos um cartão
+  if (!cards || cards.length === 0) {
+    const defaultCard = { id: 'default', name: 'Cartão de crédito', closingDay: 30, dueDay: 8 };
+    Storage.setCards([defaultCard]);
+    cards = [defaultCard];
+    State.selectedCardId = 'default';
+    Storage._set('SELECTED_CARD_ID', 'default');
+    return defaultCard;
+  }
+
+  // Verificar se o selectedCardId ainda é válido
+  if (State.selectedCardId) {
+    const found = cards.find(c => c.id === State.selectedCardId);
+    if (found) return found;
+  }
+
+  // Tentar preferência persistida
+  const storedId = Storage._get('SELECTED_CARD_ID', null);
+  if (storedId) {
+    const found = cards.find(c => c.id === storedId);
+    if (found) {
+      State.selectedCardId = storedId;
+      return found;
+    }
+  }
+
+  // Fallback: primeiro da lista
+  State.selectedCardId = cards[0].id;
+  Storage._set('SELECTED_CARD_ID', cards[0].id);
+  return cards[0];
+}
+
+// ─── CARD TAB ────────────────────────────────────────────────────────────────
+function renderCardTab() {
+  let cards = Storage.getCards();
+
+  // Criar cartão padrão automaticamente se não existir nenhum
+  if (!cards || cards.length === 0) {
+    cards = [{ id: 'default', name: 'Cartão de crédito', closingDay: 30, dueDay: 8 }];
+    Storage.setCards(cards);
+  }
+
+  // Selecionar cartão
+  if (!State.selectedCardId || !cards.find(c => c.id === State.selectedCardId)) {
+    const storedId = Storage._get('SELECTED_CARD_ID', null);
+    State.selectedCardId = (storedId && cards.find(c => c.id === storedId)) ? storedId : cards[0].id;
+    Storage._set('SELECTED_CARD_ID', State.selectedCardId);
+  }
+  const selectedCard = cards.find(c => c.id === State.selectedCardId) || cards[0];
+
+  // Popular seletor de cartão
+  const selectorEl = document.getElementById('card-selector');
+  if (selectorEl) {
+    selectorEl.innerHTML = cards.map(c =>
+      `<option value="${esc(c.id)}"${c.id === State.selectedCardId ? ' selected' : ''}>${esc(c.name)}</option>`
+    ).join('');
+  }
+
+  // Mostrar/ocultar botão de editar (só mostra quando há cartão selecionado)
+  const editBtn = document.getElementById('btn-edit-card');
+  if (editBtn) editBtn.style.display = cards.length > 0 ? '' : 'none';
+
+  const inv = Finance.getCardInvoice(State.year, State.month, selectedCard);
+  document.getElementById('card-month-label').textContent = inv.title;
+  document.getElementById('card-total').textContent = fmtCurrency(inv.total);
+  const dueLabelEl = document.getElementById('card-due-label');
+  if (dueLabelEl) dueLabelEl.textContent = inv.dueLabel;
+
+  const statusEl   = document.getElementById('card-invoice-status');
+  const paySection = document.getElementById('card-pay-section');
+  if (inv.transactions.length === 0) {
+    statusEl.textContent = 'Nenhuma compra nesta fatura';
+    paySection.style.display = 'none';
+  } else if (inv.allPaid) {
+    statusEl.textContent = '✓ Fatura paga · ' + inv.dueLabel;
+    paySection.style.display = 'none';
+  } else {
+    statusEl.textContent = 'Pendente · ' + inv.dueLabel;
+    paySection.style.display = '';
+  }
+
+  // Filtro de subtipo
+  let txs = [...inv.transactions];
+  if (State.cardSubFilter === 'once')            txs = txs.filter(t => t.subtype === 'once');
+  else if (State.cardSubFilter === 'installment') txs = txs.filter(t => t.subtype === 'installment');
+  else if (State.cardSubFilter === 'recurring')   txs = txs.filter(t => t.subtype === 'recurring');
+
+  // Ordenar: mais recente primeiro
+  txs.sort((a, b) => {
+    const da = a.createdAt || a.purchaseDate || a.dueDate || '';
+    const db = b.createdAt || b.purchaseDate || b.dueDate || '';
+    return db > da ? 1 : -1;
+  });
+
+  const listEl = document.getElementById('card-invoice-list');
+  listEl.innerHTML = txs.length === 0
+    ? emptyState('💳', 'Fatura vazia', 'Compras nesta categoria aparecerão aqui.')
+    : txs.map(t => txRow(t, t.purchaseDate ? fmtDate(t.purchaseDate) : null)).join('');
+}
+
+function selectCard(id) {
+  State.selectedCardId = id;
+  Storage._set('SELECTED_CARD_ID', id);
+  renderCardTab();
+}
+
+// ─── CARD MODAL ──────────────────────────────────────────────────────────────
+function openAddCard() {
+  State.editCardId = null;
+  document.getElementById('card-form').reset();
+  document.getElementById('card-closing-day').value = 30;
+  document.getElementById('card-due-day').value = 8;
+  document.getElementById('card-modal-title').textContent = 'Novo Cartão';
+  const delBtn = document.getElementById('btn-delete-card');
+  if (delBtn) delBtn.style.display = 'none';
+  openModal('card-modal');
+}
+
+function openEditCard() {
+  const card = getSelectedCard();
+  if (!card) return;
+  State.editCardId = card.id;
+  document.getElementById('card-modal-title').textContent = 'Editar Cartão';
+  document.getElementById('card-name').value        = card.name;
+  document.getElementById('card-closing-day').value = card.closingDay || 30;
+  document.getElementById('card-due-day').value     = card.dueDay || 8;
+  const delBtn = document.getElementById('btn-delete-card');
+  if (delBtn) {
+    const cards = Storage.getCards();
+    delBtn.style.display = cards.length > 1 ? '' : 'none';
+  }
+  openModal('card-modal');
+}
+
+function saveCardForm() {
+  const name       = document.getElementById('card-name').value.trim();
+  const closingDay = parseInt(document.getElementById('card-closing-day').value, 10);
+  const dueDay     = parseInt(document.getElementById('card-due-day').value, 10);
+
+  if (!name)                           { showToast('Informe o nome do cartão', 'error'); return; }
+  if (!closingDay || closingDay < 1 || closingDay > 31) { showToast('Dia de fechamento inválido (1–31)', 'error'); return; }
+  if (!dueDay     || dueDay < 1     || dueDay > 31)     { showToast('Dia de vencimento inválido (1–31)', 'error'); return; }
+
+  let cards = Storage.getCards();
+  if (!cards || cards.length === 0) cards = [];
+
+  if (State.editCardId) {
+    const idx = cards.findIndex(c => c.id === State.editCardId);
+    if (idx !== -1) {
+      cards[idx] = { ...cards[idx], name, closingDay, dueDay };
+    }
+    showToast('Cartão atualizado', 'success');
+  } else {
+    const newCard = { id: genId(), name, closingDay, dueDay, createdAt: new Date().toISOString() };
+    cards.push(newCard);
+    State.selectedCardId = newCard.id;
+    Storage._set('SELECTED_CARD_ID', newCard.id);
+    showToast('Cartão criado', 'success');
+  }
+
+  Storage.setCards(cards);
+  closeModal('card-modal');
+  renderCardTab();
+}
+
+function deleteCurrentCard() {
+  const cards = Storage.getCards();
+  if (!cards || cards.length <= 1) {
+    showToast('Não é possível excluir o único cartão', 'error');
+    return;
+  }
+  confirmDialog('Excluir este cartão? As compras associadas permanecem salvas.', () => {
+    const newCards = cards.filter(c => c.id !== State.editCardId);
+    Storage.setCards(newCards);
+    State.selectedCardId = newCards[0].id;
+    Storage._set('SELECTED_CARD_ID', newCards[0].id);
+    closeModal('card-modal');
+    showToast('Cartão excluído', 'success');
+    renderCardTab();
+  });
+}
+
+// ─── GOALS TAB ───────────────────────────────────────────────────────────────
+function renderGoals() {
+  const goals = Storage.getGoals();
+  const el = document.getElementById('goals-list');
+  if (goals.length === 0) {
+    el.innerHTML = emptyState('🎯', 'Nenhuma meta', 'Defina objetivos para guardar dinheiro.');
+    return;
+  }
+  el.innerHTML = `<div class="goals-grid">` + goals.map(g => {
+    const pct = Math.min(100, Math.round((Number(g.saved) / Number(g.target)) * 100));
+    const monthly = g.deadline ? (() => {
+      const now = new Date(), dl = new Date(g.deadline);
+      const months = Math.max(1, (dl.getFullYear() - now.getFullYear()) * 12 + (dl.getMonth() - now.getMonth()));
+      return Math.ceil((g.target - g.saved) / months);
+    })() : null;
+    return `<div class="goal-card">
+      <div class="goal-top">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0">
+          <div class="goal-emoji-wrap">${esc(g.emoji || '🎯')}</div>
+          <div class="goal-name-wrap">
+            <div class="goal-name">${esc(g.name)}</div>
+            <div class="goal-pct-label">${pct}% concluído</div>
           </div>
         </div>
-        <div class="form-footer" style="display:flex;flex-direction:column;gap:0.5rem">
-          <button id="card-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Cartão</button>
-          <button id="btn-delete-card" type="button" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Excluir Cartão</button>
+        <div style="display:flex;gap:0.25rem">
+          <button class="btn-icon" onclick="openEditGoal('${g.id}')" title="Editar">✏</button>
+          <button class="btn-icon" onclick="doDeleteGoal('${g.id}')" title="Excluir">✕</button>
         </div>
-      </form>
-    </div>
-  </div>
-</div>
+      </div>
+      <div class="goal-amounts">
+        <span class="goal-saved">${fmtCurrency(g.saved)}</span>
+        <span class="goal-target">de ${fmtCurrency(g.target)}</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+      ${g.deadline ? `<div class="goal-deadline">Prazo: ${fmtDate(g.deadline)}${monthly ? ' · ~' + fmtCurrency(monthly) + '/mês' : ''}</div>` : ''}
+      <button class="btn btn-outline form-btn-full" onclick="openAddToGoal('${g.id}')">Guardar Dinheiro</button>
+    </div>`;
+  }).join('') + `</div>`;
+}
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Conta / Assinatura                                            -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="account-modal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-header">
-      <span class="modal-title">Minha Conta</span>
-      <button id="close-account-modal" class="modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Nome</div>
-        <div id="acct-name" style="font-size:1rem;font-weight:500">—</div>
-      </div>
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">E-mail</div>
-        <div id="acct-email" style="font-size:1rem">—</div>
-      </div>
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Assinatura</div>
-        <div id="acct-sub-status" style="font-size:1rem;font-weight:600">—</div>
-        <div id="acct-sub-end" style="font-size:0.82rem;color:var(--muted-fg);margin-top:0.25rem;display:none">—</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:1.5rem">
-        <button id="acct-cancel-btn" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Cancelar Assinatura</button>
-        <button id="acct-logout-btn" class="btn btn-outline form-btn-full">Sair da Conta</button>
-      </div>
-    </div>
-  </div>
-</div>
+// ─── TX ROW RENDERER ─────────────────────────────────────────────────────────
+function txRow(t, dateOverride) {
+  const isPaid   = t.paid;
+  const status   = getDueStatus(t.dueDate);
+  const isLate   = !isPaid && status === 'overdue';
+  const isIncome = t.type === 'income';
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- CONFIRM OVERLAY                                                      -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="confirm-overlay" class="modal-overlay">
-  <div class="modal-box" style="max-width:320px">
-    <div class="modal-body" style="text-align:center;padding-top:1.5rem">
-      <p id="confirm-msg" style="font-size:0.95rem;margin-bottom:1.5rem;line-height:1.5">Tem certeza?</p>
-      <div style="display:flex;gap:0.75rem">
-        <button id="confirm-cancel" class="btn btn-outline form-btn-full">Cancelar</button>
-        <button id="confirm-ok" class="btn btn-primary form-btn-full">Confirmar</button>
+  const iconClass = isIncome ? 'income' : isPaid ? 'paid' : isLate ? 'late' : 'pending';
+  const iconEmoji = isIncome ? (isPaid ? '✓' : '↓') : isPaid ? '✓' : isLate ? '!' : '○';
+
+  const badges = [];
+  if (t.subtype === 'recurring')   badges.push('<span class="tag tag-blue">Recorrente</span>');
+  if (t.subtype === 'installment') badges.push(`<span class="tag tag-purple">Parcela ${t.installmentCurrent}/${t.installmentTotal}</span>`);
+  if (t.paymentMethod === 'credito') badges.push('<span class="tag tag-gold">💳 Crédito</span>');
+
+  const dateDisplay = dateOverride || fmtDate(t.dueDate);
+  const payBtn = isIncome
+    ? (isPaid ? `<button class="btn-undo" onclick="toggleTx('${t.id}')">Desfazer</button>`
+              : `<button class="btn-pay income-pay" onclick="toggleTx('${t.id}')">Receber</button>`)
+    : (isPaid ? `<button class="btn-undo" onclick="toggleTx('${t.id}')">Desfazer</button>`
+              : `<button class="btn-pay" onclick="toggleTx('${t.id}')">Pagar</button>`);
+
+  return `<div class="tx-row${isPaid ? ' is-paid' : ''}${isLate ? ' is-late' : ''}">
+    <div class="tx-header-row">
+      <div class="tx-icon ${iconClass}">${iconEmoji}</div>
+      <div class="tx-desc">${esc(t.description)}</div>
+      <div class="tx-amount${isIncome ? ' income' : isPaid ? ' paid' : ''}">
+        ${isIncome ? '+' : ''}${fmtCurrency(t.amount)}
       </div>
     </div>
-  </div>
-</div>
+    ${t.category ? `<div class="tx-cat">${esc(t.category)}</div>` : ''}
+    <div class="tx-date-line">${dateDisplay}</div>
+    ${badges.length > 0 ? `<div class="tx-badges">${badges.join('')}</div>` : ''}
+    <div class="tx-actions">
+      ${payBtn}
+      <button class="btn-icon" onclick="openEditTx('${t.id}')" title="Editar">✏</button>
+      <button class="btn-icon" onclick="doDeleteTx('${t.id}')" title="Excluir">✕</button>
+    </div>
+  </div>`;
+}
 
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- TOAST                                                                -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="toast"></div>
+function emptyState(emoji, title, sub) {
+  return `<div class="empty-state">
+    <div class="empty-icon">${emoji}</div>
+    <div class="empty-title">${title}</div>
+    <div class="empty-sub">${sub}</div>
+  </div>`;
+}
 
-<!-- <!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- SCRIPTS                                                              -->
-<!-- ════════════════════════════════════════════════════════════════════ -->
+// ─── ACTIONS ─────────────────────────────────────────────────────────────────
+function toggleTx(id) { Finance.togglePaid(id); refreshAll(); }
+function doDeleteTx(id) {
+  if (id.startsWith('virtual_')) { showToast('Edite o lançamento original para parar a recorrência.', 'error'); return; }
+  confirmDialog('Excluir este lançamento?', () => { Finance.deleteTransaction(id); showToast('Excluído'); refreshAll(); });
+}
+function doDeleteGoal(id) {
+  confirmDialog('Excluir esta meta?', () => { Finance.deleteGoal(id); showToast('Meta excluída'); renderGoals(); });
+}
+function deleteQuick(id) {
+  Finance.deleteQuickExpense(id);
+  showToast('Gasto excluído');
+  renderQuickList();
+  renderOverview();
+}
 
-<script src="config.js"></script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODALS
+// ═══════════════════════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-<!-- Chart.js — gráficos -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+// ─── TX FORM ─────────────────────────────────────────────────────────────────
+let _txType = 'expense';
 
-<!-- Biblioteca oficial do Supabase -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+function openAddTx(type) {
+  _txType = type || 'expense';
+  State.editTxId = null;
+  _populateTxCardSelect(null);
+  resetTxForm();
+  document.getElementById('tx-modal-title').textContent = _txType === 'income' ? 'Nova Entrada' : 'Nova Despesa';
+  openModal('tx-modal');
+}
 
-<!-- Inicialização do cliente -->
-<script src="supabase-client.js"></script>
+function openEditTx(id) {
+  if (id.startsWith('virtual_')) { showToast('Para editar, use o lançamento original.', 'error'); return; }
+  const tx = Storage.getTransactions().find(t => t.id === id);
+  if (!tx) return;
+  State.editTxId = id;
+  _txType = tx.type;
+  document.getElementById('tx-modal-title').textContent = _txType === 'income' ? 'Editar Entrada' : 'Editar Despesa';
+  populateCategoryOptions(_txType);
+  document.getElementById('tx-desc').value     = tx.description;
+  document.getElementById('tx-amount').value   = tx.amount;
+  document.getElementById('tx-duedate').value  = (tx.paymentMethod === 'credito' && tx.purchaseDate) ? tx.purchaseDate : tx.dueDate;
+  document.getElementById('tx-category').value = tx.category;
+  document.getElementById('tx-payment').value  = tx.paymentMethod;
+  document.getElementById('tx-subtype').value  = tx.subtype;
+  document.getElementById('tx-installments').value = tx.installmentTotal || 1;
+  document.getElementById('tx-paid').checked   = tx.paid;
+  // Pré-seleciona o cartão da transação no seletor do modal
+  _populateTxCardSelect(tx.cardId || null);
+  updateSubtypeSection();
+  updateInvoicePreview();
+  openModal('tx-modal');
+}
 
-<!-- Restante do sistema -->
-<script src="storage.js"></script>
-<script src="finance.js"></script>
-<script src="auth.js"></script>
-<script src="subscription.js"></script>
-<script src="app.js"></script>
+function resetTxForm() {
+  document.getElementById('tx-form').reset();
+  document.getElementById('tx-duedate').value = todayIso();
+  populateCategoryOptions(_txType);
+  updateSubtypeSection();
+  updateInvoicePreview();
+}
 
-</body>
-</html>
+function populateCategoryOptions(type) {
+  const cats = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  document.getElementById('tx-category').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function updateSubtypeSection() {
+  document.getElementById('tx-installments-section').style.display =
+    document.getElementById('tx-subtype').value === 'installment' ? '' : 'none';
+}
+
+// Retorna o cartão escolhido NO SELETOR DO MODAL de transação.
+// Fallback para getSelectedCard() se o seletor não existir ou estiver vazio.
+function _getTxCard() {
+  const sel   = document.getElementById('tx-card-select');
+  const selId = sel?.value;
+  if (selId) {
+    const found = Storage.getCards().find(c => c.id === selId);
+    if (found) return found;
+  }
+  return getSelectedCard();
+}
+
+// Popula o <select id="tx-card-select"> e pré-seleciona o card indicado.
+function _populateTxCardSelect(selectedId) {
+  const sel = document.getElementById('tx-card-select');
+  if (!sel) return;
+  const cards = Storage.getCards();
+  const list  = cards.length > 0 ? cards : [DEFAULT_CARD];
+  const defId = selectedId || getSelectedCard().id;
+  sel.innerHTML = list
+    .map(c => `<option value="${esc(c.id)}"${c.id === defId ? ' selected' : ''}>${esc(c.name)}</option>`)
+    .join('');
+}
+
+function updateInvoicePreview() {
+  const payment   = document.getElementById('tx-payment').value;
+  const dateVal   = document.getElementById('tx-duedate').value;
+  const labelEl   = document.getElementById('tx-date-label');
+  const previewEl = document.getElementById('tx-invoice-preview');
+  const cardRow   = document.getElementById('tx-card-row');
+  if (!labelEl || !previewEl) return;
+  if (payment === 'credito') {
+    if (cardRow) cardRow.style.display = '';
+    labelEl.textContent = 'Data da compra';
+    if (dateVal) {
+      const card = _getTxCard();
+      const info = getInvoiceForPurchase(dateVal, card);
+      const lbl  = invoiceLabel(info.cycleKey, card.dueDay);
+      previewEl.textContent = '→ Entrará na ' + lbl.title + ' · ' + lbl.dueLabel;
+      previewEl.style.display = '';
+    } else {
+      previewEl.style.display = 'none';
+    }
+  } else {
+    if (cardRow) cardRow.style.display = 'none';
+    labelEl.textContent = 'Data / Vencimento';
+    previewEl.style.display = 'none';
+  }
+}
+
+function saveTxForm() {
+  const desc      = document.getElementById('tx-desc').value.trim();
+  const amount    = parseFloat(document.getElementById('tx-amount').value);
+  const dueDate   = document.getElementById('tx-duedate').value;
+  const cat       = document.getElementById('tx-category').value;
+  const payment   = document.getElementById('tx-payment').value;
+  const subtype   = document.getElementById('tx-subtype').value;
+  const instTotal = parseInt(document.getElementById('tx-installments').value) || 1;
+  const paid      = document.getElementById('tx-paid').checked;
+
+  if (!desc)           { showToast('Informe a descrição', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Informe um valor válido', 'error'); return; }
+  if (!dueDate)        { showToast('Informe a data', 'error'); return; }
+
+  // Usa o cartão escolhido no seletor do modal de transação
+  const selectedCard = payment === 'credito' ? _getTxCard() : null;
+
+  const base = {
+    type: _txType, subtype, description: desc, amount,
+    purchaseDate: payment === 'credito' ? dueDate : undefined,
+    dueDate, category: cat, paymentMethod: payment,
+    cardId: payment === 'credito' ? selectedCard.id : null,
+    installmentTotal: instTotal, paid,
+  };
+
+  if (State.editTxId) {
+    Finance.updateTransaction(State.editTxId, base);
+    showToast('Lançamento atualizado', 'success');
+  } else if (subtype === 'installment' && instTotal > 1) {
+    const groupId   = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    const origDate  = parseLocalDate(dueDate);
+    const origDay   = origDate.getDate();
+    const origMonth = origDate.getMonth();
+    const origYear  = origDate.getFullYear();
+    for (let i = 1; i <= instTotal; i++) {
+      const totalMonths = origMonth + (i - 1);
+      const instYear  = origYear + Math.floor(totalMonths / 12);
+      const instMonth = totalMonths % 12;
+      const dd = buildDate(instYear, instMonth, origDay);
+      Finance.addTransaction({
+        ...base, groupId,
+        installmentCurrent: i, installmentTotal: instTotal,
+        dueDate: dd,
+        purchaseDate: payment === 'credito' ? dd : undefined,
+        paid: false,
+      });
+    }
+    showToast(`${instTotal} parcelas criadas`, 'success');
+  } else {
+    Finance.addTransaction(base);
+    showToast('Lançamento salvo', 'success');
+  }
+  closeModal('tx-modal');
+  refreshAll();
+}
+
+// ─── GASTO RÁPIDO ─────────────────────────────────────────────────────────────
+
+let _quickBase = { saldo: 0, previsao: 0 };
+
+function parseQuickInput(text) {
+  if (!text || !text.trim()) return null;
+  const parts = text.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  const PAYMENT_MAP = {
+    'pix':'pix','debito':'debito','débito':'debito',
+    'credito':'credito','crédito':'credito',
+    'dinheiro':'dinheiro','cash':'dinheiro',
+    'transferencia':'transferencia','transferência':'transferencia','boleto':'boleto',
+  };
+  const lastWord = parts[parts.length - 1].toLowerCase();
+  let paymentMethod = null, descParts = [], amountStr = '';
+  if (PAYMENT_MAP[lastWord]) {
+    paymentMethod = PAYMENT_MAP[lastWord];
+    const remaining = parts.slice(0, -1);
+    const lastNum = remaining[remaining.length - 1];
+    if (lastNum && /^[\d.,]+$/.test(lastNum)) { amountStr = lastNum; descParts = remaining.slice(0, -1); }
+    else return null;
+  } else {
+    const lastNum = parts[parts.length - 1];
+    if (/^[\d.,]+$/.test(lastNum)) { amountStr = lastNum; descParts = parts.slice(0, -1); paymentMethod = 'pix'; }
+    else if (parts.length >= 3) {
+      const pen = parts[parts.length - 2];
+      if (/^[\d.,]+$/.test(pen)) {
+        amountStr = pen; descParts = parts.slice(0, -2);
+        paymentMethod = PAYMENT_MAP[parts[parts.length - 1].toLowerCase()] || 'pix';
+      } else return null;
+    } else return null;
+  }
+  const amount = parseFloat(amountStr.replace(',', '.'));
+  const desc   = descParts.join(' ').trim();
+  if (!desc || !amount || amount <= 0) return null;
+  return { description: desc, amount, paymentMethod };
+}
+
+function openQuickModal() {
+  const inp = document.getElementById('quick-input');
+  inp.value = '';
+  document.getElementById('quick-preview').style.display = 'none';
+  document.getElementById('quick-sim-preview').style.display = 'none';
+  document.getElementById('quick-card-row')?.style && (document.getElementById('quick-card-row').style.display = 'none');
+
+  _quickBase.saldo    = Finance.calcSaldoDisponivel(State.year, State.month);
+  _quickBase.previsao = Finance.calcPrevisao(State.year, State.month);
+
+  const prevEl  = document.getElementById('quick-month-preview');
+  const amtEl   = document.getElementById('quick-month-amount');
+  const saldoEl = document.getElementById('quick-saldo-amount');
+  if (prevEl && amtEl && saldoEl) {
+    amtEl.textContent   = fmtCurrency(_quickBase.previsao);
+    amtEl.style.color   = _quickBase.previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
+    saldoEl.textContent = fmtCurrency(_quickBase.saldo);
+    saldoEl.style.color = _quickBase.saldo >= 0 ? 'var(--success)' : 'var(--destructive)';
+    prevEl.style.display = '';
+  }
+
+  // Popular seletor de cartão com todos os cartões cadastrados.
+  // Padrão: cartão atualmente selecionado na aba Cartão.
+  const quickCardSel = document.getElementById('quick-card-select');
+  if (quickCardSel) {
+    const cards = Storage.getCards();
+    const list  = cards.length > 0 ? cards : [DEFAULT_CARD];
+    const defaultId = getSelectedCard().id;
+    quickCardSel.innerHTML = list
+      .map(c => `<option value="${esc(c.id)}"${c.id === defaultId ? ' selected' : ''}>${esc(c.name)}</option>`)
+      .join('');
+  }
+
+  openModal('quick-modal');
+  setTimeout(() => inp.focus(), 100);
+}
+
+// Retorna o cartão escolhido NO SELETOR DO MODAL de gasto rápido.
+// Fallback para getSelectedCard() se o seletor não existir ou estiver vazio.
+function _getQuickCard() {
+  const sel   = document.getElementById('quick-card-select');
+  const selId = sel?.value;
+  if (selId) {
+    const found = Storage.getCards().find(c => c.id === selId);
+    if (found) return found;
+  }
+  return getSelectedCard();
+}
+
+function updateQuickPreview() {
+  const val     = document.getElementById('quick-input').value;
+  const preview = document.getElementById('quick-preview');
+  const simEl   = document.getElementById('quick-sim-preview');
+  const cardRow = document.getElementById('quick-card-row');
+  const parsed  = parseQuickInput(val);
+
+  if (parsed) {
+    preview.style.display = '';
+    preview.innerHTML = `<strong>${esc(parsed.description)}</strong> — ${fmtCurrency(parsed.amount)} — ${fmtPayment(parsed.paymentMethod)}`;
+
+    const isCredito    = parsed.paymentMethod === 'credito';
+    const simSaldo     = document.getElementById('quick-sim-saldo');
+    const simPrevisao  = document.getElementById('quick-sim-previsao');
+    const previsaoItem = document.getElementById('quick-sim-previsao-item');
+    const faturaItem   = document.getElementById('quick-sim-fatura-item');
+    const faturaLabel  = document.getElementById('quick-sim-fatura-label');
+    const simFatura    = document.getElementById('quick-sim-fatura');
+
+    if (isCredito) {
+      // Mostrar seletor de cartão
+      if (cardRow) cardRow.style.display = '';
+
+      // Crédito: saldo atual não muda; mostrar impacto na fatura do cartão escolhido
+      simSaldo.textContent = fmtCurrency(_quickBase.saldo);
+      simSaldo.style.color = 'var(--muted-fg)';
+      previsaoItem.style.display = 'none';
+
+      // Usar o cartão escolhido no seletor do próprio modal
+      const card        = _getQuickCard();
+      const invInfo     = getInvoiceForPurchase(todayIso(), card);
+      const invY        = invInfo.year;
+      const invM        = invInfo.month;
+      const invPrevisao = Finance.calcPrevisao(invY, invM);
+      const invApos     = invPrevisao - parsed.amount;
+
+      faturaLabel.textContent  = `Previsão ${MONTHS_PT[invM]}/${invY} (fatura ${esc(card.name)})`;
+      simFatura.textContent    = fmtCurrency(invApos);
+      simFatura.style.color    = invApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      faturaItem.style.display = '';
+    } else {
+      // Ocultar seletor de cartão para pagamentos não-crédito
+      if (cardRow) cardRow.style.display = 'none';
+
+      const saldoApos    = _quickBase.saldo    - parsed.amount;
+      const previsaoApos = _quickBase.previsao - parsed.amount;
+
+      simSaldo.textContent    = fmtCurrency(saldoApos);
+      simSaldo.style.color    = saldoApos    >= 0 ? 'var(--success)' : 'var(--destructive)';
+      simPrevisao.textContent = fmtCurrency(previsaoApos);
+      simPrevisao.style.color = previsaoApos >= 0 ? 'var(--success)' : 'var(--destructive)';
+      previsaoItem.style.display = '';
+      faturaItem.style.display   = 'none';
+    }
+
+    simEl.style.display = '';
+  } else {
+    preview.style.display = 'none';
+    simEl.style.display   = 'none';
+    if (cardRow) cardRow.style.display = 'none';
+  }
+}
+
+function saveQuickForm() {
+  const val    = document.getElementById('quick-input').value.trim();
+  const parsed = parseQuickInput(val);
+  if (!parsed) { showToast('Formato inválido. Ex: Mercado 120 débito', 'error'); return; }
+  if (parsed.paymentMethod === 'credito') {
+    // Usar o cartão escolhido no seletor do próprio modal de Gasto Rápido
+    const card         = _getQuickCard();
+    const purchaseDate = todayIso();
+    Finance.addTransaction({
+      type:'expense', subtype:'once', description:parsed.description, amount:parsed.amount,
+      purchaseDate, dueDate:purchaseDate, category:'Outros',
+      paymentMethod:'credito', cardId: card.id, paid:false,
+    });
+  } else {
+    Finance.addQuickExpense(parsed.description, parsed.amount, parsed.paymentMethod);
+  }
+  showToast('Gasto lançado!', 'success');
+  closeModal('quick-modal');
+  if (State.view === 'dashboard') refreshAll();
+}
+
+// ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
+let _rptYear  = null;
+let _rptMonth = null;
+let _rptData  = null;
+let _rptChart = null;
+let _rptOpenCat = null;
+
+const RPT_COLORS = [
+  '#c9a227','#e07b54','#5b9bd5','#6aa84f','#cc4125',
+  '#674ea7','#e69138','#45818e','#a64d79','#888888',
+];
+
+function rptChangeMonth(delta) {
+  _rptMonth += delta;
+  if (_rptMonth > 11) { _rptMonth = 0; _rptYear++; }
+  if (_rptMonth < 0)  { _rptMonth = 11; _rptYear--; }
+  _rptData    = null;
+  _rptOpenCat = null;
+  renderReports();
+}
+
+function refreshReports() {
+  if (_rptYear === null) {
+    _rptYear  = State.year;
+    _rptMonth = State.month;
+  }
+  _rptData    = null;
+  _rptOpenCat = null;
+  renderReports();
+}
+
+function _buildReportExpenses(year, month) {
+  // Transações de competência do mês (tx regulares + crédito rápido que virou tx)
+  const txExpenses = Finance.getByCompetency(year, month)
+    .filter(t => t.type === 'expense')
+    .map(t => ({
+      id:            t.id,
+      date:          (t.paymentMethod === 'credito' && t.purchaseDate) ? t.purchaseDate : t.dueDate,
+      description:   t.description,
+      amount:        t.amount,
+      paymentMethod: t.paymentMethod,
+      category:      t.category || 'Outros',
+    }));
+
+  // Gastos rápidos não-crédito (armazenados separadamente)
+  const quickExpenses = (Storage.getQuickExpenses() || [])
+    .filter(q => {
+      if (q.paymentMethod === 'credito') return false;
+      const d = new Date((q.date || '') + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
+    })
+    .map(q => ({
+      id:            'q_' + (q.id || q.date + q.description),
+      date:          q.date || '',
+      description:   q.description || q.desc || '—',
+      amount:        Number(q.amount) || 0,
+      paymentMethod: q.paymentMethod || 'pix',
+      category:      q.category || 'Outros',
+    }));
+
+  return [...txExpenses, ...quickExpenses];
+}
+
+function _buildRptData(year, month) {
+  const expenses = _buildReportExpenses(year, month);
+  const total    = expenses.reduce((s, e) => s + e.amount, 0);
+
+  const catMap = new Map();
+  for (const e of expenses) {
+    const cat = e.category || 'Outros';
+    if (!catMap.has(cat)) catMap.set(cat, { name: cat, total: 0, items: [] });
+    const g = catMap.get(cat);
+    g.total += e.amount;
+    g.items.push(e);
+  }
+
+  const categories = [...catMap.values()].sort((a, b) => b.total - a.total);
+  for (const c of categories) {
+    c.items.sort((a, b) => (b.date > a.date ? 1 : -1));
+    c.pct = total > 0 ? (c.total / total * 100) : 0;
+    const amts = c.items.map(i => i.amount);
+    c.avg = c.items.length > 0 ? c.total / c.items.length : 0;
+    c.max = amts.length > 0 ? Math.max(...amts) : 0;
+    c.min = amts.length > 0 ? Math.min(...amts) : 0;
+  }
+
+  const today    = new Date();
+  const isCurMon = year === today.getFullYear() && month === today.getMonth();
+  const days     = isCurMon ? today.getDate() : new Date(year, month + 1, 0).getDate();
+  const maxItem  = expenses.length > 0 ? expenses.reduce((a, b) => a.amount >= b.amount ? a : b) : null;
+
+  return {
+    total, categories,
+    topCat:   categories[0] || null,
+    maxItem,
+    avgDaily: days > 0 ? total / days : 0,
+  };
+}
+
+function renderReports() {
+  const year = _rptYear, month = _rptMonth;
+
+  const labelEl = document.getElementById('rpt-month-label');
+  if (labelEl) labelEl.textContent = MONTHS_PT[month] + ' / ' + year;
+
+  if (!_rptData) _rptData = _buildRptData(year, month);
+  const d = _rptData;
+
+  // KPI cards
+  const sumEl = document.getElementById('rpt-summary');
+  if (sumEl) {
+    const topLabel = d.topCat ? esc(d.topCat.name) + ' (' + d.topCat.pct.toFixed(0) + '%)' : '—';
+    const maxLabel = d.maxItem ? fmtCurrency(d.maxItem.amount) : '—';
+    sumEl.innerHTML =
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">💰</div><div class="rpt-kpi-label">Total gasto</div><div class="rpt-kpi-value">' + fmtCurrency(d.total) + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">🛒</div><div class="rpt-kpi-label">Maior categoria</div><div class="rpt-kpi-value rpt-kpi-sm">' + topLabel + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">💳</div><div class="rpt-kpi-label">Maior compra</div><div class="rpt-kpi-value">' + maxLabel + '</div></div>' +
+      '<div class="rpt-kpi"><div class="rpt-kpi-icon">📈</div><div class="rpt-kpi-label">Média diária</div><div class="rpt-kpi-value">' + fmtCurrency(d.avgDaily) + '</div></div>';
+  }
+
+  _renderRptChart(d);
+  _renderRptCatList(d);
+}
+
+function _renderRptChart(d) {
+  const canvas = document.getElementById('rpt-chart');
+  if (!canvas) return;
+
+  if (_rptChart) { _rptChart.destroy(); _rptChart = null; }
+  if (d.total === 0) return;
+
+  const labels = d.categories.map(c => c.name);
+  const values = d.categories.map(c => c.total);
+  const colors = d.categories.map((_, i) => RPT_COLORS[i % RPT_COLORS.length]);
+  const cardBg = getComputedStyle(document.documentElement).getPropertyValue('--card').trim() || '#fff';
+  const fgCol  = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()   || '#1a1a1a';
+  const muCol  = getComputedStyle(document.documentElement).getPropertyValue('--muted-fg').trim() || '#888';
+  const totalLabel = fmtCurrency(d.total);
+
+  _rptChart = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: cardBg,
+        hoverOffset: 6,
+      }],
+    },
+    options: {
+      cutout: '68%',
+      animation: { duration: 600, easing: 'easeInOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const cat = d.categories[ctx.dataIndex];
+              return [
+                '  ' + fmtCurrency(cat.total),
+                '  ' + cat.pct.toFixed(1) + '% do total',
+                '  ' + cat.items.length + (cat.items.length === 1 ? ' compra' : ' compras'),
+              ];
+            },
+          },
+        },
+      },
+    },
+    plugins: [{
+      id: 'rptCenter',
+      afterDraw(chart) {
+        const { ctx, chartArea: { top, left, width, height } } = chart;
+        const cx = left + width / 2, cy = top + height / 2;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = muCol;
+        ctx.font = '500 0.68rem Inter,sans-serif';
+        ctx.fillText('Total gasto', cx, cy - 10);
+        ctx.fillStyle = fgCol;
+        ctx.font = '600 1.05rem Inter,sans-serif';
+        ctx.fillText(totalLabel, cx, cy + 12);
+        ctx.restore();
+      },
+    }],
+  });
+
+  canvas.onclick = (e) => {
+    if (!_rptChart) return;
+    const pts = _rptChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+    if (!pts.length) return;
+    const catName = d.categories[pts[0].index]?.name;
+    if (catName) _rptToggleCat(catName);
+  };
+}
+
+function _rptToggleCat(name) {
+  _rptOpenCat = _rptOpenCat === name ? null : name;
+  document.querySelectorAll('.rpt-cat-item').forEach(el => {
+    const isThis  = el.dataset.cat === name;
+    const open    = isThis && _rptOpenCat === name;
+    const detail  = el.querySelector('.rpt-cat-detail');
+    const arrow   = el.querySelector('.rpt-cat-arrow');
+    if (detail) detail.style.display = open ? '' : 'none';
+    if (arrow)  arrow.textContent    = open ? '▲' : '▼';
+    el.classList.toggle('rpt-cat-open', open);
+  });
+}
+
+function _fmtDateShort(iso) {
+  if (!iso) return '—';
+  const parts = iso.split('-');
+  if (parts.length < 3) return iso;
+  return parts[2] + '/' + parts[1];
+}
+
+function _renderRptCatList(d) {
+  const el = document.getElementById('rpt-cat-list');
+  if (!el) return;
+
+  if (d.categories.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Nenhum gasto neste mês</div><div class="empty-sub">Lance despesas para ver o relatório</div></div>';
+    return;
+  }
+
+  el.innerHTML = d.categories.map((cat, i) => {
+    const color = RPT_COLORS[i % RPT_COLORS.length];
+    const catKey = esc(cat.name);
+    const rows = cat.items.map(item =>
+      '<div class="rpt-tx-row">' +
+        '<span class="rpt-tx-date">' + _fmtDateShort(item.date) + '</span>' +
+        '<span class="rpt-tx-desc">' + esc(item.description) + '</span>' +
+        '<span class="rpt-tx-pay">' + esc(fmtPayment(item.paymentMethod)) + '</span>' +
+        '<span class="rpt-tx-amt">' + fmtCurrency(item.amount) + '</span>' +
+      '</div>'
+    ).join('');
+
+    return (
+      '<div class="rpt-cat-item" data-cat="' + catKey + '" onclick="_rptToggleCat(\'' + catKey.replace(/'/g, "\\'") + '\')">' +
+        '<div class="rpt-cat-header">' +
+          '<span class="rpt-cat-dot" style="background:' + color + '"></span>' +
+          '<span class="rpt-cat-name">' + catKey + '</span>' +
+          '<div class="rpt-cat-bar-wrap"><div class="rpt-cat-bar" style="width:' + cat.pct.toFixed(1) + '%;background:' + color + '"></div></div>' +
+          '<span class="rpt-cat-pct">' + cat.pct.toFixed(0) + '%</span>' +
+          '<span class="rpt-cat-total">' + fmtCurrency(cat.total) + '</span>' +
+          '<span class="rpt-cat-arrow">▼</span>' +
+        '</div>' +
+        '<div class="rpt-cat-detail" style="display:none">' +
+          '<div class="rpt-cat-stats">' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Compras</span><span class="rpt-stat-val">' + cat.items.length + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Ticket médio</span><span class="rpt-stat-val">' + fmtCurrency(cat.avg) + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Maior compra</span><span class="rpt-stat-val">' + fmtCurrency(cat.max) + '</span></div>' +
+            '<div class="rpt-stat"><span class="rpt-stat-lbl">Menor compra</span><span class="rpt-stat-val">' + fmtCurrency(cat.min) + '</span></div>' +
+          '</div>' +
+          '<div class="rpt-tx-list">' + rows + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+}
+
+// ─── PROCESSAR PAGAMENTOS ─────────────────────────────────────────────────────
+// _processSelectedTxIds  — IDs individuais (receitas + despesas sem cartão)
+// _processSelectedInvoices — chaves "cardId::year::month" para faturas agrupadas
+let _processSelectedTxIds = new Set();
+let _processSelectedInvoices = new Set();
+
+function openProcessPayments() {
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+
+  // Receitas pendentes do mês atual (listagem individual)
+  const pendingIncome = Finance.getByCompetency(y, m, 'income')
+    .filter(t => !t.paid)
+    .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
+
+  // Despesas não-crédito pendentes (listagem individual)
+  const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month)
+    .filter(t => t.paymentMethod !== 'credito');
+
+  // Faturas de cartão — uma linha por cartão
+  const allCards = Storage.getCards();
+  const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
+  const cardInvoices = cardsToCheck
+    .map(card => ({ card, invoice: Finance.getCardInvoice(State.year, State.month, card) }))
+    .filter(({ invoice }) => invoice.total > 0 && !invoice.allPaid);
+
+  _processSelectedTxIds = new Set();
+  _processSelectedInvoices = new Set();
+
+  const listEl = document.getElementById('process-list');
+  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0 || cardInvoices.length > 0;
+
+  if (!hasAny) {
+    listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[State.month]}/${State.year} 🎉</div>`;
+    document.getElementById('process-confirm-btn').style.display = 'none';
+  } else {
+    document.getElementById('process-confirm-btn').style.display = '';
+
+    // Linha individual (receita ou despesa comum)
+    const renderTxRow = (t, colorClass) => {
+      const isLate  = getDueStatus(t.dueDate) === 'overdue';
+      const isToday = getDueStatus(t.dueDate) === 'today';
+      const badge   = isLate  ? '<span style="color:var(--destructive);font-size:0.72rem">● Vencida</span>'
+                    : isToday ? '<span style="color:hsl(38,92%,50%);font-size:0.72rem">● Hoje</span>'
+                    : '';
+      return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;border:1px solid ${isLate?'hsl(0,70%,80%)':'var(--border)'};border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:${isLate?'hsla(0,70%,55%,0.04)':'transparent'}">
+        <input type="checkbox" data-process-id="${t.id}" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('tx','${t.id}',this.checked)" />
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)}</div>
+          <div style="font-size:0.78rem;color:var(--muted-fg);display:flex;gap:0.5rem;align-items:center">${fmtDate(t.dueDate)}${t.subtype==='installment'?` · Parcela ${t.installmentCurrent}/${t.installmentTotal}`:''}${badge?` · ${badge}`:''}</div>
+        </div>
+        <div style="font-weight:600;color:${colorClass};white-space:nowrap">${fmtCurrency(t.amount)}</div>
+      </label>`;
+    };
+
+    // Linha de fatura de cartão (agrupada)
+    const renderInvoiceRow = (card, invoice) => {
+      const invoiceKey = `${card.id}::${State.year}::${State.month}`;
+      const count = invoice.transactions.length;
+      return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 0.75rem;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:transparent">
+        <input type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('invoice','${invoiceKey}',this.checked)" />
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💳 ${esc(card.name)}</div>
+          <div style="font-size:0.78rem;color:var(--muted-fg)">${esc(invoice.title)} · ${esc(invoice.dueLabel)} · ${count} compra${count !== 1 ? 's' : ''}</div>
+        </div>
+        <div style="font-weight:700;color:var(--destructive);white-space:nowrap">${fmtCurrency(invoice.total)}</div>
+      </label>`;
+    };
+
+    let html = '';
+
+    if (pendingIncome.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--success);margin:0.75rem 0 0.5rem">▲ Receber</div>`;
+      html += pendingIncome.map(t => renderTxRow(t, 'var(--success)')).join('');
+    }
+
+    if (cardInvoices.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Faturas de Cartão</div>`;
+      html += cardInvoices.map(({ card, invoice }) => renderInvoiceRow(card, invoice)).join('');
+    }
+
+    if (pendingExpenses.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--destructive);margin:0.75rem 0 0.5rem">▼ Outras Despesas</div>`;
+      html += pendingExpenses.map(t => renderTxRow(t, 'var(--destructive)')).join('');
+    }
+
+    listEl.innerHTML = html;
+  }
+  openModal('process-modal');
+}
+
+function toggleProcessItem(kind, id, checked) {
+  if (kind === 'invoice') {
+    if (checked) _processSelectedInvoices.add(id); else _processSelectedInvoices.delete(id);
+  } else {
+    if (checked) _processSelectedTxIds.add(id); else _processSelectedTxIds.delete(id);
+  }
+}
+
+function confirmProcessPayments() {
+  const txIds = Array.from(_processSelectedTxIds);
+  const invoiceKeys = Array.from(_processSelectedInvoices);
+  if (txIds.length === 0 && invoiceKeys.length === 0) { showToast('Nenhum item selecionado', 'error'); return; }
+
+  if (txIds.length > 0) Finance.processPayments(txIds);
+
+  invoiceKeys.forEach(key => {
+    const [cardId, yearStr, monthStr] = key.split('::');
+    const year  = Number(yearStr);
+    const month = Number(monthStr);
+    const cards = Storage.getCards();
+    const card  = cards.find(c => c.id === cardId) || DEFAULT_CARD;
+    Finance.markInvoicePaid(year, month, card);
+  });
+
+  const total = txIds.length + invoiceKeys.length;
+  showToast(`${total} item(s) processado(s)!`, 'success');
+  closeModal('process-modal');
+  refreshAll();
+  renderHomeBalance();
+}
+
+// ─── FATURA ───────────────────────────────────────────────────────────────────
+function payInvoice() {
+  const card = getSelectedCard();
+  Finance.markInvoicePaid(State.year, State.month, card);
+  showToast('Fatura ' + MONTHS_PT[State.month] + '/' + State.year + ' marcada como paga!', 'success');
+  renderCardTab();
+  renderOverview();
+}
+
+// ─── GOALS ────────────────────────────────────────────────────────────────────
+function openAddGoal() {
+  State.editGoalId = null;
+  document.getElementById('goal-form').reset();
+  document.getElementById('goal-emoji').value = '🎯';
+  document.getElementById('goal-modal-title').textContent = 'Nova Meta';
+  openModal('goal-modal');
+}
+function openEditGoal(id) {
+  const g = Storage.getGoals().find(g => g.id === id);
+  if (!g) return;
+  State.editGoalId = id;
+  document.getElementById('goal-modal-title').textContent = 'Editar Meta';
+  document.getElementById('goal-name').value     = g.name;
+  document.getElementById('goal-emoji').value    = g.emoji || '🎯';
+  document.getElementById('goal-target').value   = g.target;
+  document.getElementById('goal-saved').value    = g.saved;
+  document.getElementById('goal-deadline').value = g.deadline || '';
+  openModal('goal-modal');
+}
+function saveGoalForm() {
+  const name     = document.getElementById('goal-name').value.trim();
+  const emoji    = document.getElementById('goal-emoji').value || '🎯';
+  const target   = parseFloat(document.getElementById('goal-target').value);
+  const saved    = parseFloat(document.getElementById('goal-saved').value) || 0;
+  const deadline = document.getElementById('goal-deadline').value;
+  if (!name)           { showToast('Informe o nome da meta', 'error'); return; }
+  if (!target || target <= 0) { showToast('Informe um valor alvo válido', 'error'); return; }
+  if (State.editGoalId) {
+    Finance.updateGoal(State.editGoalId, { name, emoji, target, saved, deadline });
+    showToast('Meta atualizada', 'success');
+  } else {
+    Finance.addGoal({ name, emoji, target, saved, deadline });
+    showToast('Meta criada', 'success');
+  }
+  closeModal('goal-modal');
+  renderGoals();
+}
+let _addToGoalId = null;
+function openAddToGoal(id) {
+  _addToGoalId = id;
+  const g = Storage.getGoals().find(g => g.id === id);
+  document.getElementById('addgoal-modal-title').textContent = 'Guardar em: ' + (g ? g.name : '');
+  document.getElementById('addgoal-amount').value = '';
+  openModal('addgoal-modal');
+}
+function saveAddToGoal() {
+  const amount = parseFloat(document.getElementById('addgoal-amount').value);
+  if (!amount || amount <= 0) { showToast('Informe um valor', 'error'); return; }
+  Finance.addToGoal(_addToGoalId, amount);
+  showToast('Valor guardado!', 'success');
+  closeModal('addgoal-modal');
+  renderGoals();
+}
+
+// ─── BACKUP ──────────────────────────────────────────────────────────────────
+function exportBackup() {
+  const data = Storage.exportAll();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'financas-backup-' + new Date().toISOString().split('T')[0] + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Backup exportado', 'success');
+}
+function importBackup() {
+  const inp  = document.createElement('input');
+  inp.type   = 'file';
+  inp.accept = '.json';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.version) throw new Error();
+        confirmDialog('Importar backup? Os dados atuais serão substituídos.', () => {
+          Storage.importAll(data);
+          showToast('Backup importado com sucesso', 'success');
+          refreshAll();
+        });
+      } catch { showToast('Arquivo inválido', 'error'); }
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  // ── Confirm dialog ──────────────────────────────────────────────────────────
+  document.getElementById('confirm-ok').addEventListener('click', () => {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    if (_confirmCb) _confirmCb();
+    _confirmCb = null;
+  });
+  document.getElementById('confirm-cancel').addEventListener('click', () => {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    _confirmCb = null;
+  });
+
+  // ── Auth views ──────────────────────────────────────────────────────────────
+  document.getElementById('login-btn').addEventListener('click', Auth.login.bind(Auth));
+  document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') Auth.login(); });
+  document.getElementById('go-signup').addEventListener('click', () => showAuthView('signup'));
+  document.getElementById('go-forgot').addEventListener('click', () => showAuthView('forgot-pw'));
+  document.getElementById('signup-btn').addEventListener('click', Auth.signup.bind(Auth));
+  document.getElementById('go-login-from-signup').addEventListener('click', () => showAuthView('login'));
+  document.getElementById('forgot-btn').addEventListener('click', Auth.forgotPassword.bind(Auth));
+  document.getElementById('go-login-from-forgot').addEventListener('click', () => showAuthView('login'));
+  document.getElementById('reset-btn').addEventListener('click', Auth.resetPassword.bind(Auth));
+  document.getElementById('sub-btn').addEventListener('click', () => Subscription.subscribe());
+  document.getElementById('sub-check-btn').addEventListener('click', () => Subscription.checkStatus());
+  document.getElementById('sub-logout-btn').addEventListener('click', () => Auth.logout());
+
+  // ── Home ────────────────────────────────────────────────────────────────────
+  document.getElementById('home-go-quick').addEventListener('click', openQuickModal);
+  document.getElementById('home-go-dashboard').addEventListener('click', () => showView('dashboard'));
+  document.getElementById('home-go-process').addEventListener('click', () => {
+    openProcessPayments();
+  });
+
+  // ── Dashboard header ────────────────────────────────────────────────────────
+  document.getElementById('btn-back-home').addEventListener('click', () => showView('home'));
+  document.getElementById('btn-export').addEventListener('click', exportBackup);
+  document.getElementById('btn-import').addEventListener('click', importBackup);
+  document.getElementById('btn-account').addEventListener('click', openAccountModal);
+
+  // ── Month nav ───────────────────────────────────────────────────────────────
+  document.getElementById('btn-prev-month').addEventListener('click', prevMonth);
+  document.getElementById('btn-next-month').addEventListener('click', nextMonth);
+
+  // ── Tabs ────────────────────────────────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn =>
+    btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+
+  // ── Expense subtype filter ────────────────────────────────────────────────
+  document.querySelectorAll('[data-expsubtypefilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.expSubFilter = btn.dataset.expsubtypefilter;
+      document.querySelectorAll('[data-expsubtypefilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderExpenses();
+    }));
+
+  // ── Expense filters ─────────────────────────────────────────────────────────
+  document.querySelectorAll('[data-expfilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.expFilter = btn.dataset.expfilter;
+      document.querySelectorAll('[data-expfilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderExpenses();
+    }));
+
+  // ── Card subtype filter ───────────────────────────────────────────────────
+  document.querySelectorAll('[data-cardsubtypefilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.cardSubFilter = btn.dataset.cardsubtypefilter;
+      document.querySelectorAll('[data-cardsubtypefilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderCardTab();
+    }));
+
+  // ── Income filters ──────────────────────────────────────────────────────────
+  document.querySelectorAll('[data-incfilter]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      State.incFilter = btn.dataset.incfilter;
+      document.querySelectorAll('[data-incfilter]').forEach(b => b.classList.toggle('active', b === btn));
+      renderIncome();
+    }));
+
+  // ── TX modal ──────────────────────────────────────────────────────────────
+  document.getElementById('close-tx-modal').addEventListener('click', () => closeModal('tx-modal'));
+  document.getElementById('tx-save-btn').addEventListener('click', saveTxForm);
+  document.getElementById('tx-subtype').addEventListener('change', updateSubtypeSection);
+  document.getElementById('tx-payment').addEventListener('change', updateInvoicePreview);
+  document.getElementById('tx-card-select')?.addEventListener('change', updateInvoicePreview);
+  document.getElementById('tx-duedate').addEventListener('change', updateInvoicePreview);
+  document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
+  document.getElementById('btn-add-income').addEventListener('click', () => openAddTx('income'));
+  document.getElementById('btn-add-income-2').addEventListener('click', () => {
+    openAddTx('income');
+    setTimeout(() => {
+      const s = document.getElementById('tx-subtype');
+      if (s) { s.value = 'recurring'; updateSubtypeSection(); }
+    }, 50);
+  });
+  document.getElementById('btn-add-quick').addEventListener('click', openQuickModal);
+
+  // ── Quick modal ────────────────────────────────────────────────────────────
+  document.getElementById('close-quick-modal').addEventListener('click', () => closeModal('quick-modal'));
+  document.getElementById('quick-save-btn').addEventListener('click', saveQuickForm);
+  document.getElementById('quick-input').addEventListener('input', updateQuickPreview);
+  document.getElementById('quick-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveQuickForm(); });
+
+  // ── Process modal ──────────────────────────────────────────────────────────
+  document.getElementById('close-process-modal').addEventListener('click', () => closeModal('process-modal'));
+  document.getElementById('process-confirm-btn').addEventListener('click', confirmProcessPayments);
+
+  // ── Invoice pay ────────────────────────────────────────────────────────────
+  document.getElementById('btn-pay-invoice').addEventListener('click', payInvoice);
+
+  // ── Card modal (novo / editar cartão) ─────────────────────────────────────
+  document.getElementById('close-card-modal')?.addEventListener('click', () => closeModal('card-modal'));
+  document.getElementById('card-save-btn')?.addEventListener('click', saveCardForm);
+  document.getElementById('btn-delete-card')?.addEventListener('click', deleteCurrentCard);
+  document.getElementById('btn-add-card')?.addEventListener('click', openAddCard);
+  document.getElementById('btn-edit-card')?.addEventListener('click', openEditCard);
+
+  // ── Goal modal ─────────────────────────────────────────────────────────────
+  document.getElementById('close-goal-modal').addEventListener('click', () => closeModal('goal-modal'));
+  document.getElementById('goal-save-btn').addEventListener('click', saveGoalForm);
+  document.getElementById('btn-add-goal').addEventListener('click', openAddGoal);
+  document.getElementById('close-addgoal-modal').addEventListener('click', () => closeModal('addgoal-modal'));
+  document.getElementById('addgoal-save-btn').addEventListener('click', saveAddToGoal);
+
+  // ── Account modal ─────────────────────────────────────────────────────────
+  document.getElementById('close-account-modal').addEventListener('click', () => closeModal('account-modal'));
+  document.getElementById('acct-cancel-btn').addEventListener('click', () => Subscription.cancel());
+  document.getElementById('acct-logout-btn').addEventListener('click', () => Auth.logout());
+
+  // ── Signup CPF mask ────────────────────────────────────────────────────────
+  const signupCpf = document.getElementById('signup-cpf');
+  if (signupCpf) signupCpf.addEventListener('input', () => Subscription.maskCpf(signupCpf));
+
+  // ── Init Auth ──────────────────────────────────────────────────────────────
+  Auth.init();
+});
