@@ -510,10 +510,20 @@ const Finance = {
   },
 
   // ── CASH FLOW FORECAST ────────────────────────────────────────────────────
-  // Retorna projeção dia-a-dia do saldo para o mês vigente.
+  // Retorna projeção dia-a-dia do saldo para QUALQUER mês (ano, mês).
   // Detecta se e quando o saldo ficará negativo.
+  //
+  // Regra do saldo inicial (não deve nunca divergir do card "Previsão do Mês"):
+  //   - Mês vigente: usa o saldo disponível real (calcSaldoDisponivel), exatamente
+  //     como já funcionava antes desta função aceitar outros meses.
+  //   - Qualquer outro mês (passado ou futuro): o saldo final da projeção é
+  //     travado para ser sempre igual a calcPrevisao(year, month) — a mesma
+  //     função e regra já usadas pelo card "Previsão do Mês" — calculando o
+  //     saldo inicial em função disso, garantindo zero divergência.
   calcCashFlowForecast(year, month) {
-    const startBalance = this.calcSaldoDisponivel(year, month);
+    const today = new Date();
+    const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+
     const events = [];
 
     // Entradas pendentes (listadas individualmente)
@@ -552,6 +562,17 @@ const Finance = {
       if (b.type === 'income' && a.type !== 'income') return 1;
       return 0;
     });
+
+    const eventsTotal = events.reduce((s, ev) => s + ev.amount, 0);
+
+    // Mês vigente: comportamento 100% original (saldo disponível real).
+    // Demais meses: parte-se de calcPrevisao(year, month) — a MESMA função
+    // usada pelo card "Previsão do Mês" — e o saldo inicial é derivado dela,
+    // de forma que startBalance + eventsTotal === calcPrevisao(year, month)
+    // sempre, sem exceção.
+    const startBalance = isCurrentMonth
+      ? this.calcSaldoDisponivel(year, month)
+      : this.calcPrevisao(year, month) - eventsTotal;
 
     let balance = startBalance;
     let minBalance = startBalance;
