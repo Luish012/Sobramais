@@ -257,6 +257,92 @@ function renderHomeBalance() {
     prevEl.style.color = previsao >= 0 ? 'var(--success)' : 'var(--destructive)';
   }
   balEl.style.display = '';
+  renderHomeCashFlow();
+}
+
+// ─── HOME CASH FLOW FORECAST ──────────────────────────────────────────────────
+function renderHomeCashFlow() {
+  const cfEl = document.getElementById('home-cashflow');
+  if (!cfEl) return;
+
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+
+  // Apenas para o mês vigente
+  if (State.year !== y || State.month !== m) {
+    cfEl.style.display = 'none';
+    return;
+  }
+
+  const cf = Finance.calcCashFlowForecast(y, m);
+
+  if (!cf.hasNegativePeriod) {
+    cfEl.style.display = 'none';
+    return;
+  }
+
+  cfEl.style.display = '';
+
+  const ds = str => {
+    if (!str) return '';
+    const [, mm, dd] = str.split('-');
+    return `${dd}/${mm}`;
+  };
+
+  const periodMsg = cf.firstNegativeDate
+    ? (cf.recoveredDate
+        ? `Seu saldo pode ficar negativo entre ${ds(cf.firstNegativeDate)} e ${ds(cf.recoveredDate)}.`
+        : `Seu saldo pode ficar negativo a partir de ${ds(cf.firstNegativeDate)}.`)
+    : 'Risco de saldo negativo detectado.';
+
+  const detailRows = cf.events.map(ev => {
+    const amtColor = ev.amount >= 0 ? 'var(--success)' : 'var(--destructive)';
+    const balColor = ev.balanceAfter >= 0 ? 'var(--success)' : 'var(--destructive)';
+    const sign     = ev.amount >= 0 ? '+' : '−';
+    const absAmt   = fmtCurrency(Math.abs(ev.amount));
+    return `<div style="padding:0.55rem 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem">
+        <span style="font-size:0.82rem;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.label)}</span>
+        <span style="font-size:0.84rem;font-weight:600;color:${amtColor};white-space:nowrap">${sign} ${absAmt}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:0.1rem">
+        <span style="font-size:0.71rem;color:var(--muted-fg)">${ds(ev.date)}</span>
+        <span style="font-size:0.71rem;color:${balColor}">Saldo: ${fmtCurrency(ev.balanceAfter)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  cfEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;gap:0.5rem" onclick="toggleCashFlow()">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.78rem;font-weight:700;color:var(--destructive);letter-spacing:0.04em;text-transform:uppercase">⚠ Risco de Saldo Negativo</div>
+        <div style="font-size:0.76rem;color:var(--muted-fg);margin-top:0.2rem">${periodMsg}</div>
+      </div>
+      <span id="cashflow-chevron" style="font-size:1rem;color:var(--muted-fg);transition:transform 0.2s;flex-shrink:0;margin-top:0.1rem">▾</span>
+    </div>
+    <div style="display:flex;gap:1.5rem;margin-top:0.6rem">
+      <div>
+        <div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;color:var(--muted-fg)">Menor saldo</div>
+        <div style="font-size:1rem;font-weight:700;color:var(--destructive)">${fmtCurrency(cf.minBalance)}</div>
+      </div>
+      ${cf.minDate ? `<div>
+        <div style="font-size:0.64rem;font-weight:600;text-transform:uppercase;color:var(--muted-fg)">Data crítica</div>
+        <div style="font-size:1rem;font-weight:700;color:var(--destructive)">${ds(cf.minDate)}</div>
+      </div>` : ''}
+    </div>
+    <div id="cashflow-detail" style="display:none;margin-top:0.75rem">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted-fg);margin-bottom:0.3rem">Fluxo Previsto</div>
+      <div style="max-height:300px;overflow-y:auto">${detailRows}</div>
+    </div>`;
+}
+
+function toggleCashFlow() {
+  const detail  = document.getElementById('cashflow-detail');
+  const chevron = document.getElementById('cashflow-chevron');
+  if (!detail) return;
+  const open = detail.style.display === 'none';
+  detail.style.display = open ? '' : 'none';
+  if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
 }
 
 // ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
