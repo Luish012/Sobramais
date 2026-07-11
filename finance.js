@@ -4,36 +4,52 @@ const INCOME_CATEGORIES = ['Salário','Comissão','Freelance','Bônus','Renda Ex
 const EXPENSE_CATEGORIES = ['Alimentação','Transporte','Saúde','Moradia','Lazer','Educação','Roupas','Tecnologia','Assinatura','Outros'];
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// ─── CARD BILLING RULES ───────────────────────────────────────────────────────
-// Fechamento: dia 31 (último dia do mês)
-// Vencimento: dia 8 do mês seguinte
-// Compras de 01/MM a 30/MM → fatura vencimento 08/(MM+1)
-// Compras no dia 31/MM (meses com 31 dias) → fatura vencimento 08/(MM+2)
-const CARD_DUE_DAY = 8;
+// ─── CARTÃO PADRÃO ────────────────────────────────────────────────────────────
+const DEFAULT_CARD = { id: 'default', name: 'Cartão de crédito', closingDay: 30, dueDay: 8 };
 
-function getInvoiceForPurchase(purchaseDateStr) {
+// ─── CARD BILLING RULES ───────────────────────────────────────────────────────
+// Regra geral:
+//   Se compra <= fechamento → fatura do mês seguinte, vencendo no dueDay
+//   Se compra > fechamento  → fatura do mês subsequente, vencendo no dueDay
+//
+// card pode ser undefined/null → usa DEFAULT_CARD (closingDay=30, dueDay=8)
+
+function getInvoiceForPurchase(purchaseDateStr, card) {
+  const closingDay = (card && card.closingDay) || DEFAULT_CARD.closingDay;
+  const dueDay     = (card && card.dueDay)     || DEFAULT_CARD.dueDay;
+
   const d = parseLocalDate(purchaseDateStr);
-  const day = d.getDate();
+  const day    = d.getDate();
   const pMonth = d.getMonth();
   const pYear  = d.getFullYear();
-  const daysInMonth = new Date(pYear, pMonth + 1, 0).getDate();
-  const isClosingDay = (daysInMonth === 31 && day === 31);
+
+  // compras até o fechamento → fatura do próximo mês
+  // compras depois do fechamento → fatura do mês seguinte ao próximo
   let invMonth = pMonth + 1;
-  let invYear  = pYear;
-  if (isClosingDay) invMonth = pMonth + 2;
+  if (day > closingDay) invMonth = pMonth + 2;
+
+  let invYear = pYear;
   if (invMonth > 11) { invYear += Math.floor(invMonth / 12); invMonth = invMonth % 12; }
-  const dueDate  = `${invYear}-${String(invMonth+1).padStart(2,'0')}-${String(CARD_DUE_DAY).padStart(2,'0')}`;
-  const cycleKey = `${invYear}-${String(invMonth+1).padStart(2,'0')}`;
+
+  // Garantir que dueDay não ultrapasse o número de dias do mês de vencimento
+  const maxDay  = new Date(invYear, invMonth + 1, 0).getDate();
+  const realDue = Math.min(dueDay, maxDay);
+
+  const dueDate  = `${invYear}-${String(invMonth + 1).padStart(2,'0')}-${String(realDue).padStart(2,'0')}`;
+  const cycleKey = `${invYear}-${String(invMonth + 1).padStart(2,'0')}`;
   return { year: invYear, month: invMonth, dueDate, cycleKey };
 }
 
-function invoiceLabel(cycleKey) {
+function invoiceLabel(cycleKey, dueDay) {
   const [y, m] = cycleKey.split('-').map(Number);
-  const due = `${String(CARD_DUE_DAY).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`;
+  const effectiveDueDay = dueDay || DEFAULT_CARD.dueDay;
+  const maxDay = new Date(y, m, 0).getDate();
+  const realDue = Math.min(effectiveDueDay, maxDay);
+  const due = `${String(realDue).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`;
   return {
-    title: `Fatura ${MONTHS_PT[m-1]}/${y}`,
+    title:    `Fatura ${MONTHS_PT[m-1]}/${y}`,
     dueLabel: `Vencimento: ${due}`,
-    dueDate: `${y}-${String(m).padStart(2,'0')}-${String(CARD_DUE_DAY).padStart(2,'0')}`,
+    dueDate:  `${y}-${String(m).padStart(2,'0')}-${String(realDue).padStart(2,'0')}`,
   };
 }
 
@@ -156,12 +172,18 @@ const Finance = {
 
   // ── TRANSACTIONS ───────────────────────────────────────────────────────────
   addTransaction(data) {
-    const groupId = data.groupId || genId();
+    const groupId  = data.groupId || genId();
     const isCredit = data.paymentMethod === 'credito';
 
     // purchaseDate: for credit, use the explicit purchaseDate or the raw dueDate the user entered
     const purchaseDate = isCredit ? (data.purchaseDate || data.dueDate || todayStr()) : null;
-    const invoiceInfo  = isCredit ? getInvoiceForPurchase(purchaseDate) : null;
+
+    // Usar o cardId passado; fallback para 'default' para compatibilidade
+    const cardId = isCredit ? (data.cardId || 'default') : null;
+
+    // Buscar card para calcular fatura corretamente
+    const card = isCredit ? _findCardById(cardId) : null;
+    const invoiceInfo = isCredit ? getInvoiceForPurchase(purchaseDate, card) : null;
 
     const tx = {
       id: genId(),
@@ -172,8 +194,8 @@ const Finance = {
       category: data.category || 'Outros',
       amount: Math.abs(Number(data.amount)||0),
       paymentMethod: data.paymentMethod || 'pix',
-      cardId: isCredit ? 'default' : null,
-      // For credit: dueDate stored = invoice due date (08/MM); for others: the date entered
+      cardId,
+      // For credit: dueDate stored = invoice due date; for others: the date entered
       dueDate: isCredit ? invoiceInfo.dueDate : (data.dueDate || todayStr()),
       purchaseDate,
       invoiceCycleKey: isCredit ? invoiceInfo.cycleKey : null,
@@ -199,14 +221,16 @@ const Finance = {
     const purchaseDate = isCredit
       ? (data.purchaseDate || data.dueDate || old.purchaseDate || old.dueDate || todayStr())
       : null;
-    const invoiceInfo = isCredit ? getInvoiceForPurchase(purchaseDate) : null;
+    const cardId = isCredit ? (data.cardId || old.cardId || 'default') : null;
+    const card = isCredit ? _findCardById(cardId) : null;
+    const invoiceInfo = isCredit ? getInvoiceForPurchase(purchaseDate, card) : null;
     txs[idx] = {
       ...old,
       description: (data.description||'').trim(),
       category: data.category || old.category,
       amount: Math.abs(Number(data.amount)||old.amount),
       paymentMethod: data.paymentMethod || old.paymentMethod,
-      cardId: isCredit ? 'default' : null,
+      cardId,
       dueDate: isCredit ? invoiceInfo.dueDate : (data.dueDate || old.dueDate),
       purchaseDate: purchaseDate || old.purchaseDate,
       invoiceCycleKey: isCredit ? invoiceInfo.cycleKey : null,
@@ -233,9 +257,6 @@ const Finance = {
   },
 
   // ── TOGGLE PAID ────────────────────────────────────────────────────────────
-  // For recurring: materialises virtual occurrence, marks paid.
-  // For installments: simply toggles paid — all parcelas are already stored.
-  // NEVER creates the next occurrence/installment on pay.
   togglePaid(id) {
     if (id.startsWith('virtual_')) {
       this._materialiseAndPay(id);
@@ -303,8 +324,6 @@ const Finance = {
   },
 
   // ── GET BY COMPETENCY (with virtual recurring projection) ──────────────────
-  // Returns all transactions for (year, month) including projected recurring ones.
-  // Competência = mês do vencimento (dueDate).
   getByCompetency(year, month, type) {
     const allTxs = Storage.getTransactions();
     const result = [];
@@ -355,8 +374,6 @@ const Finance = {
   },
 
   // ── SALDO DISPONÍVEL (apenas mês vigente) ──────────────────────────────────
-  // Fórmula: receitas recebidas − despesas pagas não-crédito
-  //          − fatura paga − gastos rápidos não-crédito do mês
   calcSaldoDisponivel(year, month) {
     const txs = this.getByCompetency(year, month);
 
@@ -384,21 +401,15 @@ const Finance = {
   },
 
   // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
-  // Mês atual     : saldo disponível + entradas pendentes − despesas pendentes − fatura pendente
-  //                 (se saldo=0 e nada recebido: totalIncome − totalExpenses)
-  // Mês seguinte  : APENAS o imediatamente seguinte herda a previsão do mês atual
-  // Meses passados e demais futuros: totalIncome − totalExpenses (sem carry-forward)
   calcPrevisao(year, month) {
     const today = new Date();
     const todayYear = today.getFullYear(), todayMonth = today.getMonth();
     const isCurrentMonth = year === todayYear && month === todayMonth;
 
-    // Mês imediatamente seguinte ao atual
     let nextY = todayYear, nextM = todayMonth + 1;
     if (nextM > 11) { nextM = 0; nextY++; }
     const isNextMonth = year === nextY && month === nextM;
 
-    // ── Mês atual ──────────────────────────────────────────────────────────
     if (isCurrentMonth) {
       const txs  = this.getByCompetency(year, month);
       const saldo = this.calcSaldoDisponivel(year, month);
@@ -410,7 +421,6 @@ const Finance = {
       const faturaPendente     = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod === 'credito')
                                      .reduce((s, t) => s + t.amount, 0);
 
-      // Se nenhuma receita foi recebida ainda, usa fórmula simples (evita mostrar 0 errado)
       const totalReceived = txs.filter(t => t.type === 'income' && t.paid).reduce((s, t) => s + t.amount, 0);
       const quickNonCredit = Storage.getQuickExpenses()
         .filter(q => {
@@ -421,7 +431,6 @@ const Finance = {
         .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
       if (totalReceived === 0 && quickNonCredit === 0) {
-        // Nada recebido/pago ainda: previsão = total entradas − total saídas do mês
         const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
         const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
         return inc - exp;
@@ -430,7 +439,6 @@ const Finance = {
       return saldo + entradasPendentes - despesasPendentes - faturaPendente;
     }
 
-    // ── Mês imediatamente seguinte: herda previsão do mês atual ────────────
     if (isNextMonth) {
       const prevPrevisao = this.calcPrevisao(todayYear, todayMonth);
       const txs = this.getByCompetency(year, month);
@@ -439,7 +447,6 @@ const Finance = {
       return prevPrevisao + inc - exp;
     }
 
-    // ── Todos os outros meses (passados e futuros +2): fórmula simples ─────
     const txs = this.getByCompetency(year, month);
     const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -466,28 +473,110 @@ const Finance = {
   },
 
   // ── CARD INVOICE ───────────────────────────────────────────────────────────
-  getCardInvoice(year, month) {
+  // card: objeto com { id, closingDay, dueDay } — se omitido usa DEFAULT_CARD
+  getCardInvoice(year, month, card) {
+    const activeCard = card || DEFAULT_CARD;
     const cycleKey = `${year}-${String(month+1).padStart(2,'0')}`;
+
     const txs = Storage.getTransactions().filter(tx => {
       if (tx.paymentMethod !== 'credito' || tx.type !== 'expense') return false;
-      const key = tx.invoiceCycleKey || getInvoiceForPurchase(tx.purchaseDate || tx.dueDate).cycleKey;
+      // Compatibilidade: cardId null ou 'default' ambos mapeiam para 'default'
+      const txCardId = tx.cardId || 'default';
+      if (txCardId !== activeCard.id) return false;
+      const key = tx.invoiceCycleKey
+        || getInvoiceForPurchase(tx.purchaseDate || tx.dueDate, activeCard).cycleKey;
       return key === cycleKey;
     });
+
     const total   = txs.reduce((s,t) => s+t.amount, 0);
     const allPaid = txs.length > 0 && txs.every(t => t.paid);
-    const lbl     = invoiceLabel(cycleKey);
+    const lbl     = invoiceLabel(cycleKey, activeCard.dueDay);
     return { transactions: txs, total, allPaid, cycleKey, ...lbl };
   },
 
-  markInvoicePaid(year, month) {
+  markInvoicePaid(year, month, card) {
+    const activeCard = card || DEFAULT_CARD;
     const cycleKey = `${year}-${String(month+1).padStart(2,'0')}`;
     const txs = Storage.getTransactions();
     txs.forEach(tx => {
       if (tx.paymentMethod !== 'credito' || tx.type !== 'expense') return;
-      const key = tx.invoiceCycleKey || getInvoiceForPurchase(tx.purchaseDate || tx.dueDate).cycleKey;
+      const txCardId = tx.cardId || 'default';
+      if (txCardId !== activeCard.id) return;
+      const key = tx.invoiceCycleKey
+        || getInvoiceForPurchase(tx.purchaseDate || tx.dueDate, activeCard).cycleKey;
       if (key === cycleKey && !tx.paid) { tx.paid = true; tx.paidDate = todayStr(); }
     });
     Storage.setTransactions(txs);
+  },
+
+  // ── CASH FLOW FORECAST ────────────────────────────────────────────────────
+  // Retorna projeção dia-a-dia do saldo para o mês vigente.
+  // Detecta se e quando o saldo ficará negativo.
+  calcCashFlowForecast(year, month) {
+    const startBalance = this.calcSaldoDisponivel(year, month);
+    const events = [];
+
+    // Entradas pendentes (listadas individualmente)
+    this.getByCompetency(year, month, 'income')
+      .filter(t => !t.paid)
+      .forEach(t => events.push({
+        date: t.dueDate, label: t.description,
+        amount: t.amount, type: 'income',
+      }));
+
+    // Despesas não-crédito pendentes (listadas individualmente)
+    this.getByCompetency(year, month, 'expense')
+      .filter(t => !t.paid && t.paymentMethod !== 'credito')
+      .forEach(t => events.push({
+        date: t.dueDate, label: t.description,
+        amount: -t.amount, type: 'expense',
+      }));
+
+    // Faturas de cartão (agrupadas por cartão — sem duplicar compras individuais)
+    const allCards = Storage.getCards();
+    const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
+    cardsToCheck.forEach(card => {
+      const invoice = this.getCardInvoice(year, month, card);
+      if (invoice.total <= 0 || invoice.allPaid) return;
+      const dueDateStr = buildDate(year, month, card.dueDay);
+      events.push({
+        date: dueDateStr, label: `Fatura ${card.name}`,
+        amount: -invoice.total, type: 'invoice',
+      });
+    });
+
+    // Ordenar por data; na mesma data, entradas antes das saídas
+    events.sort((a, b) => {
+      if (a.date !== b.date) return a.date > b.date ? 1 : -1;
+      if (a.type === 'income' && b.type !== 'income') return -1;
+      if (b.type === 'income' && a.type !== 'income') return 1;
+      return 0;
+    });
+
+    let balance = startBalance;
+    let minBalance = startBalance;
+    let minDate = null;
+    let firstNegativeDate = null;
+    let recoveredDate = null;
+
+    const timeline = events.map(ev => {
+      balance += ev.amount;
+      if (balance < minBalance) { minBalance = balance; minDate = ev.date; }
+      if (balance < 0 && !firstNegativeDate) firstNegativeDate = ev.date;
+      if (balance >= 0 && firstNegativeDate && !recoveredDate) recoveredDate = ev.date;
+      return { ...ev, balanceAfter: balance };
+    });
+
+    return {
+      startBalance,
+      events: timeline,
+      minBalance,
+      minDate,
+      firstNegativeDate,
+      recoveredDate,
+      finalBalance: balance,
+      hasNegativePeriod: minBalance < 0,
+    };
   },
 
   // ── GOALS ──────────────────────────────────────────────────────────────────
@@ -531,3 +620,10 @@ const Finance = {
   },
   deleteGoal(id) { Storage.setGoals(Storage.getGoals().filter(g => g.id!==id)); },
 };
+
+// ─── HELPER: buscar card pelo id (acessa Storage) ────────────────────────────
+function _findCardById(cardId) {
+  if (!cardId) return DEFAULT_CARD;
+  const cards = Storage.getCards();
+  return cards.find(c => c.id === cardId) || DEFAULT_CARD;
+}
