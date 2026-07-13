@@ -86,6 +86,11 @@
     <div class="auth-links">
       <button id="go-login-from-signup" class="auth-link">Já tenho conta — Entrar</button>
     </div>
+
+    <button id="signup-instagram-link" class="instagram-note" type="button" onclick="Support.openInstagram()">
+      <span class="instagram-note-label">Conheça o SobraMais no Instagram</span>
+      <span class="instagram-note-handle">📷 Instagram · @sobramais_app</span>
+    </button>
   </div>
 </div>
 
@@ -206,6 +211,11 @@
     <div style="text-align:center;margin-top:1rem">
       <button id="sub-logout-btn" class="auth-link">Sair da conta</button>
     </div>
+
+    <button id="sub-instagram-link" class="instagram-note" type="button" onclick="Support.openInstagram()">
+      <span class="instagram-note-label">Conheça o SobraMais no Instagram</span>
+      <span class="instagram-note-handle">📷 Instagram · @sobramais_app</span>
+    </button>
   </div>
 </div>
 
@@ -721,7 +731,7 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<!-- MODAL: Conta / Assinatura                                            -->
+<!-- MODAL: Minha Conta                                                   -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="account-modal" class="modal-overlay">
   <div class="modal-box">
@@ -730,23 +740,219 @@
       <button id="close-account-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Nome</div>
-        <div id="acct-name" style="font-size:1rem;font-weight:500">—</div>
+
+      <!-- ── Dados pessoais ────────────────────────────────────────────── -->
+      <div class="acct-section">
+        <div class="acct-section-title">Dados pessoais</div>
+
+        <div class="acct-field">
+          <div class="acct-field-label">Nome</div>
+          <div class="acct-field-row">
+            <div id="acct-name" class="acct-field-value">—</div>
+            <button class="acct-field-edit" type="button" onclick="Support.openEditName()">Editar</button>
+          </div>
+        </div>
+        <div class="acct-field">
+          <div class="acct-field-label">E-mail</div>
+          <div id="acct-email" class="acct-field-value">—</div>
+        </div>
+        <div class="acct-field">
+          <div class="acct-field-label">CPF</div>
+          <div id="acct-cpf" class="acct-field-value">—</div>
+        </div>
+        <div class="acct-field">
+          <div class="acct-field-label">Versão do aplicativo</div>
+          <div id="acct-app-version" class="acct-field-value">—</div>
+        </div>
+
+        <button class="btn btn-outline form-btn-full" style="margin-top:0.5rem" onclick="Support.changePassword()">Alterar Senha</button>
       </div>
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">E-mail</div>
-        <div id="acct-email" style="font-size:1rem">—</div>
+
+      <!-- ── Assinatura ────────────────────────────────────────────────── -->
+      <div class="acct-section">
+        <div class="acct-section-title">Assinatura</div>
+        <div class="acct-field">
+          <div class="acct-field-label">Status</div>
+          <div id="acct-sub-status" class="acct-field-value" style="font-weight:600">—</div>
+          <div id="acct-sub-end" style="font-size:0.82rem;color:var(--muted-fg);margin-top:0.25rem;display:none">—</div>
+        </div>
+        <div class="acct-field">
+          <div class="acct-field-label">Plano</div>
+          <div id="acct-sub-plan" class="acct-field-value">—</div>
+        </div>
+        <div class="acct-field">
+          <div class="acct-field-label">Valor</div>
+          <div id="acct-sub-price" class="acct-field-value">—</div>
+        </div>
+        <button id="acct-cancel-btn" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive);margin-top:0.5rem">Cancelar Assinatura</button>
       </div>
-      <div style="margin-bottom:1.25rem">
-        <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.25rem">Assinatura</div>
-        <div id="acct-sub-status" style="font-size:1rem;font-weight:600">—</div>
-        <div id="acct-sub-end" style="font-size:0.82rem;color:var(--muted-fg);margin-top:0.25rem;display:none">—</div>
+
+      <!-- ── Suporte ───────────────────────────────────────────────────── -->
+      <div class="acct-section">
+        <div class="acct-section-title">Suporte</div>
+        <div class="acct-menu">
+          <button class="acct-menu-item" type="button" onclick="Support.openNewTicket()">
+            <span>🆘 Abrir chamado</span><span class="acct-menu-arrow">›</span>
+          </button>
+          <button class="acct-menu-item" type="button" onclick="Support.openMyTickets()">
+            <span>💬 Meus chamados</span><span class="acct-menu-arrow">›</span>
+          </button>
+          <button class="acct-menu-item" type="button" onclick="Support.openFaq()">
+            <span>❓ Perguntas frequentes</span><span class="acct-menu-arrow">›</span>
+          </button>
+          <button class="acct-menu-item" type="button" onclick="Support.openInstagram()">
+            <span>📷 Instagram do SobraMais</span><span class="acct-menu-arrow">›</span>
+          </button>
+        </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:1.5rem">
-        <button id="acct-cancel-btn" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Cancelar Assinatura</button>
+
+      <!-- ── Novidades ─────────────────────────────────────────────────── -->
+      <div class="acct-section">
+        <div class="acct-section-title">Novidades</div>
+        <div class="acct-menu">
+          <button class="acct-menu-item" type="button" onclick="Support.openNews()">
+            <span>✨ Ver novidades</span><span class="acct-menu-arrow">›</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Sobre ─────────────────────────────────────────────────────── -->
+      <div class="acct-section" style="border-bottom:none">
+        <div class="acct-section-title">Sobre o SobraMais</div>
+        <div style="font-size:0.82rem;color:var(--muted-fg);margin-bottom:0.75rem">
+          SobraMais · <span id="acct-app-version-2">Versão —</span><br>
+          Instagram: <button class="acct-inline-link" type="button" onclick="Support.openInstagram()">@sobramais_app</button>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem">
         <button id="acct-logout-btn" class="btn btn-outline form-btn-full">Sair da Conta</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Editar Nome                                                   -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="edit-name-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Editar Nome</span>
+      <button id="close-edit-name-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Nome completo</label>
+        <input id="edit-name-input" class="form-input" type="text" placeholder="Seu nome completo" autocomplete="name" />
+      </div>
+      <div class="form-footer">
+        <button id="edit-name-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Novidades                                                     -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="news-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Novidades</span>
+      <button id="close-news-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="news-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Perguntas Frequentes                                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="faq-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Perguntas Frequentes</span>
+      <button id="close-faq-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="faq-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Abrir Chamado                                                 -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="ticket-new-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Abrir Chamado</span>
+      <button id="close-ticket-new-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="ticket-new-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label">Assunto</label>
+          <input id="ticket-subject" class="form-input" type="text" placeholder="Resuma o seu problema ou dúvida" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Categoria</label>
+          <select id="ticket-category" class="form-select">
+            <option value="duvida">Dúvida</option>
+            <option value="tecnico">Problema técnico</option>
+            <option value="pagamento">Pagamento</option>
+            <option value="conta">Conta</option>
+            <option value="sugestao">Sugestão</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mensagem</label>
+          <textarea id="ticket-message" class="form-input" rows="4" style="resize:vertical" placeholder="Descreva com detalhes..."></textarea>
+        </div>
+        <div id="ticket-new-error" class="auth-error"></div>
+        <div class="form-footer">
+          <button id="ticket-new-save-btn" type="button" class="btn btn-primary form-btn-full">Enviar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Meus Chamados                                                 -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="tickets-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Meus Chamados</span>
+      <button id="close-tickets-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="tickets-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Conversa do Chamado                                           -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="ticket-chat-modal" class="modal-overlay">
+  <div class="modal-box" style="display:flex;flex-direction:column;max-height:88dvh">
+    <div class="modal-header">
+      <span id="ticket-chat-title" class="modal-title">Chamado</span>
+      <button id="close-ticket-chat-modal" class="modal-close">✕</button>
+    </div>
+    <div id="ticket-chat-messages" class="chat-messages"></div>
+    <div class="chat-input-row">
+      <input id="ticket-chat-input" class="form-input" type="text" placeholder="Escreva uma mensagem..." autocomplete="off" />
+      <button id="ticket-chat-send-btn" type="button" class="btn btn-primary btn-sm">Enviar</button>
+    </div>
+    <div style="padding:0 1.5rem 1.25rem">
+      <button id="ticket-close-btn" type="button" class="btn btn-outline form-btn-full" style="color:var(--destructive);border-color:var(--destructive)">Encerrar Chamado</button>
     </div>
   </div>
 </div>
@@ -791,6 +997,8 @@
 <script src="finance.js"></script>
 <script src="auth.js"></script>
 <script src="subscription.js"></script>
+<script src="content.js"></script>
+<script src="support.js"></script>
 <script src="app.js"></script>
 
 </body>
