@@ -260,29 +260,11 @@ function renderHomeBalance() {
   renderHomeCashFlow();
 }
 
-// ─── HOME CASH FLOW FORECAST ──────────────────────────────────────────────────
-function renderHomeCashFlow() {
-  const cfEl = document.getElementById('home-cashflow');
-  if (!cfEl) return;
-
-  const today = new Date();
-  const y = today.getFullYear(), m = today.getMonth();
-
-  // Apenas para o mês vigente
-  if (State.year !== y || State.month !== m) {
-    cfEl.style.display = 'none';
-    return;
-  }
-
-  const cf = Finance.calcCashFlowForecast(y, m);
-
-  if (!cf.hasNegativePeriod) {
-    cfEl.style.display = 'none';
-    return;
-  }
-
-  cfEl.style.display = '';
-
+// ─── CASH FLOW FORECAST (compartilhado: Início + Painel Financeiro › Visão Geral) ──
+// Uma única função de renderização usada pelas duas telas, ambas consumindo
+// exatamente Finance.calcCashFlowForecast(year, month) — a mesma função e
+// regra de cálculo, sem duplicação de lógica entre as telas.
+function buildCashFlowCardHtml(cf) {
   const ds = str => {
     if (!str) return '';
     const [, mm, dd] = str.split('-');
@@ -312,13 +294,13 @@ function renderHomeCashFlow() {
     </div>`;
   }).join('');
 
-  cfEl.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;gap:0.5rem" onclick="toggleCashFlow()">
+  return `
+    <div class="cashflow-toggle" style="display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;gap:0.5rem">
       <div style="flex:1;min-width:0">
         <div style="font-size:0.78rem;font-weight:700;color:var(--destructive);letter-spacing:0.04em;text-transform:uppercase">⚠ Risco de Saldo Negativo</div>
         <div style="font-size:0.76rem;color:var(--muted-fg);margin-top:0.2rem">${periodMsg}</div>
       </div>
-      <span id="cashflow-chevron" style="font-size:1rem;color:var(--muted-fg);transition:transform 0.2s;flex-shrink:0;margin-top:0.1rem">▾</span>
+      <span class="cashflow-chevron" style="font-size:1rem;color:var(--muted-fg);transition:transform 0.2s;flex-shrink:0;margin-top:0.1rem">▾</span>
     </div>
     <div style="display:flex;gap:1.5rem;margin-top:0.6rem">
       <div>
@@ -330,19 +312,66 @@ function renderHomeCashFlow() {
         <div style="font-size:1rem;font-weight:700;color:var(--destructive)">${ds(cf.minDate)}</div>
       </div>` : ''}
     </div>
-    <div id="cashflow-detail" style="display:none;margin-top:0.75rem">
+    <div class="cashflow-detail" style="display:none;margin-top:0.75rem">
       <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted-fg);margin-bottom:0.3rem">Fluxo Previsto</div>
       <div style="max-height:300px;overflow-y:auto">${detailRows}</div>
     </div>`;
 }
 
-function toggleCashFlow() {
-  const detail  = document.getElementById('cashflow-detail');
-  const chevron = document.getElementById('cashflow-chevron');
+// Renderiza (ou esconde) o card de fluxo previsto dentro de `cfEl` para o
+// (year, month) informado. Usado tanto pela tela inicial quanto pela Visão
+// Geral — cada uma passa o mês que faz sentido para ela, mas ambas chamam
+// exatamente a mesma Finance.calcCashFlowForecast.
+function renderCashFlowCard(cfEl, year, month) {
+  if (!cfEl) return;
+
+  const cf = Finance.calcCashFlowForecast(year, month);
+
+  if (!cf.hasNegativePeriod) {
+    cfEl.style.display = 'none';
+    cfEl.innerHTML = '';
+    return;
+  }
+
+  cfEl.style.display = '';
+  cfEl.innerHTML = buildCashFlowCardHtml(cf);
+
+  const toggleEl = cfEl.querySelector('.cashflow-toggle');
+  if (toggleEl) toggleEl.addEventListener('click', () => toggleCashFlowCard(cfEl));
+}
+
+function toggleCashFlowCard(cfEl) {
+  const detail  = cfEl.querySelector('.cashflow-detail');
+  const chevron = cfEl.querySelector('.cashflow-chevron');
   if (!detail) return;
   const open = detail.style.display === 'none';
   detail.style.display = open ? '' : 'none';
   if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ─── HOME CASH FLOW FORECAST ──────────────────────────────────────────────────
+function renderHomeCashFlow() {
+  const cfEl = document.getElementById('home-cashflow');
+  if (!cfEl) return;
+
+  const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth();
+
+  // Apenas para o mês vigente (comportamento original mantido)
+  if (State.year !== y || State.month !== m) {
+    cfEl.style.display = 'none';
+    return;
+  }
+
+  renderCashFlowCard(cfEl, y, m);
+}
+
+// ─── VISÃO GERAL CASH FLOW FORECAST ───────────────────────────────────────────
+// Mesmo card e mesma função de cálculo da tela inicial, mas acompanhando o
+// mês selecionado no Painel Financeiro (State.year / State.month).
+function renderOverviewCashFlow() {
+  const cfEl = document.getElementById('overview-cashflow');
+  renderCashFlowCard(cfEl, State.year, State.month);
 }
 
 // ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
@@ -374,6 +403,8 @@ function renderOverview() {
   document.getElementById('sum-expenses').textContent = fmtCurrency(sum.totalExpenses);
   document.getElementById('sum-paid').textContent     = fmtCurrency(sum.totalPaid);
   document.getElementById('sum-pending').textContent  = fmtCurrency(sum.totalPending);
+
+  renderOverviewCashFlow();
 
   const reminderEl = document.getElementById('reminders-section');
   if (reminders.length === 0) {
@@ -1765,6 +1796,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('close-account-modal').addEventListener('click', () => closeModal('account-modal'));
   document.getElementById('acct-cancel-btn').addEventListener('click', () => Subscription.cancel());
   document.getElementById('acct-logout-btn').addEventListener('click', () => Auth.logout());
+
+  // ── Editar nome ────────────────────────────────────────────────────────────
+  document.getElementById('close-edit-name-modal')?.addEventListener('click', () => closeModal('edit-name-modal'));
+  document.getElementById('edit-name-save-btn')?.addEventListener('click', () => Support.saveEditName());
+
+  // ── Novidades / FAQ ─────────────────────────────────────────────────────────
+  document.getElementById('close-news-modal')?.addEventListener('click', () => closeModal('news-modal'));
+  document.getElementById('close-faq-modal')?.addEventListener('click', () => closeModal('faq-modal'));
+
+  // ── Central de suporte: abrir chamado ───────────────────────────────────────
+  document.getElementById('close-ticket-new-modal')?.addEventListener('click', () => closeModal('ticket-new-modal'));
+  document.getElementById('ticket-new-save-btn')?.addEventListener('click', () => Support.saveNewTicket());
+
+  // ── Meus chamados ────────────────────────────────────────────────────────────
+  document.getElementById('close-tickets-modal')?.addEventListener('click', () => closeModal('tickets-modal'));
+
+  // ── Chat do chamado ──────────────────────────────────────────────────────────
+  document.getElementById('close-ticket-chat-modal')?.addEventListener('click', () => closeModal('ticket-chat-modal'));
+  document.getElementById('ticket-chat-send-btn')?.addEventListener('click', () => Support.sendTicketMessage());
+  document.getElementById('ticket-chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') Support.sendTicketMessage(); });
+  document.getElementById('ticket-close-btn')?.addEventListener('click', () => Support.closeTicket());
 
   // ── Signup CPF mask ────────────────────────────────────────────────────────
   const signupCpf = document.getElementById('signup-cpf');
