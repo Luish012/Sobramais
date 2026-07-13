@@ -13,4 +13,11 @@ const CONFIG = {
   // Plano de assinatura
   PLAN_NAME:  'Plano Controle Financeiro',
   PLAN_PRICE: 9.90,
+
+  // Versão atual do aplicativo (exibida em Minha Conta / Novidades)
+  APP_VERSION: '1.1.0',
+
+  // Instagram institucional
+  INSTAGRAM_HANDLE: '@sobramais_app',
+  INSTAGRAM_URL:    'https://instagram.com/sobramais_app',
 };
