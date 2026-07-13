@@ -192,7 +192,7 @@ const Subscription = {
           showToast('Assinatura cancelada com sucesso.', 'success');
           const sub = await Auth._getSub(user.id);
           Auth.currentSubscription = sub;
-          _renderAccountModal(sub);
+          Support.renderProfile();
         } catch (e) {
           showToast('Erro ao cancelar: ' + e.message, 'error');
         }
@@ -202,51 +202,12 @@ const Subscription = {
 };
 
 // ── Modal de conta / assinatura ───────────────────────────────────────────────
+// Perfil completo (dados pessoais, assinatura, suporte, novidades) é renderizado
+// por Support.renderProfile() em support.js — mantém este arquivo focado em
+// autenticação/assinatura, sem duplicar lógica.
 function openAccountModal() {
-  const user = Auth.currentUser;
-  const sub  = Auth.currentSubscription;
-  document.getElementById('acct-email').textContent = user?.email || '—';
-  document.getElementById('acct-name').textContent  = user?.user_metadata?.name || '—';
-  _renderAccountModal(sub);
+  try { Support.renderProfile(); } catch (e) { console.error('[openAccountModal]', e); }
+  const el2 = document.getElementById('acct-app-version-2');
+  if (el2) el2.textContent = 'Versão ' + (CONFIG.APP_VERSION || '—');
   openModal('account-modal');
-}
-
-function _renderAccountModal(sub) {
-  const status = sub?.status || 'inactive';
-  const today  = new Date().toISOString().split('T')[0];
-
-  const labels = {
-    active:    'Ativa ✓',
-    inactive:  'Inativa',
-    cancelled: 'Cancelada',
-    past_due:  'Pagamento pendente',
-    trial:     sub?.end_date >= today ? `Teste grátis 🎁` : 'Teste encerrado',
-  };
-  const colors = {
-    active:    'var(--success)',
-    inactive:  'var(--muted-fg)',
-    cancelled: 'var(--destructive)',
-    past_due:  'hsl(38,80%,40%)',
-    trial:     sub?.end_date >= today ? 'hsl(220,80%,55%)' : 'var(--muted-fg)',
-  };
-  document.getElementById('acct-sub-status').textContent = labels[status] || status;
-  document.getElementById('acct-sub-status').style.color = colors[status] || 'inherit';
-
-  const endEl    = document.getElementById('acct-sub-end');
-  const cancelEl = document.getElementById('acct-cancel-btn');
-
-  if (status === 'trial' && sub?.end_date) {
-    const [y,m,d] = sub.end_date.split('-');
-    const isActive = sub.end_date >= today;
-    endEl.textContent  = isActive ? `Teste grátis válido até ${d}/${m}/${y}` : `Teste encerrado em ${d}/${m}/${y}`;
-    endEl.style.display = '';
-  } else if (sub?.end_date) {
-    const [y,m,d] = sub.end_date.split('-');
-    endEl.textContent  = `Válido até ${d}/${m}/${y}`;
-    endEl.style.display = '';
-  } else {
-    endEl.style.display = 'none';
-  }
-
-  if (cancelEl) cancelEl.style.display = (status === 'active') ? '' : 'none';
 }
