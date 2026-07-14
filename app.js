@@ -747,43 +747,112 @@ function deleteCurrentCard() {
 }
 
 // ─── GOALS TAB ───────────────────────────────────────────────────────────────
+const GOAL_PRIORITY_LABEL = { alta: 'Alta', media: 'Média', baixa: 'Baixa' };
+const GOAL_PRIORITY_TAG   = { alta: 'tag-red', media: 'tag-gold', baixa: 'tag-blue' };
+
 function renderGoals() {
-  const goals = Storage.getGoals();
+  const goals = Finance.getActiveGoals();
   const el = document.getElementById('goals-list');
   if (goals.length === 0) {
     el.innerHTML = emptyState('🎯', 'Nenhuma meta', 'Defina objetivos para guardar dinheiro.');
     return;
   }
-  el.innerHTML = `<div class="goals-grid">` + goals.map(g => {
-    const pct = Math.min(100, Math.round((Number(g.saved) / Number(g.target)) * 100));
-    const monthly = g.deadline ? (() => {
-      const now = new Date(), dl = new Date(g.deadline);
-      const months = Math.max(1, (dl.getFullYear() - now.getFullYear()) * 12 + (dl.getMonth() - now.getMonth()));
-      return Math.ceil((g.target - g.saved) / months);
-    })() : null;
-    return `<div class="goal-card">
-      <div class="goal-top">
-        <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0">
-          <div class="goal-emoji-wrap">${esc(g.emoji || '🎯')}</div>
-          <div class="goal-name-wrap">
-            <div class="goal-name">${esc(g.name)}</div>
-            <div class="goal-pct-label">${pct}% concluído</div>
+  el.innerHTML = `<div class="goals-grid">` + goals.map(g => goalCardHtml(g)).join('') + `</div>`;
+}
+
+function goalCardHtml(g) {
+  const pct = g.target > 0 ? Math.min(100, Math.round((Number(g.saved) / Number(g.target)) * 100)) : 0;
+  const remaining = Math.max(0, g.target - g.saved);
+  const isCompleted = g.status === 'completed' || remaining <= 0;
+  const isPaused = g.status === 'paused';
+
+  let prazoLine;
+  if (isCompleted) {
+    prazoLine = `<div class="goal-deadline">Meta alcançada</div>`;
+  } else if (g.monthlyContribution > 0) {
+    const months = Finance.goalMonthsNeeded(g);
+    const compl  = Finance.goalEstimatedCompletion(g);
+    prazoLine = `<div class="goal-deadline">Restante: ${fmtCurrency(remaining)} · Prazo: ${months} ${months === 1 ? 'mês' : 'meses'} · Conclusão: ${compl.label}</div>`;
+  } else if (g.deadline) {
+    const now = new Date(), dl = new Date(g.deadline);
+    const months = Math.max(1, (dl.getFullYear() - now.getFullYear()) * 12 + (dl.getMonth() - now.getMonth()));
+    const monthlyEst = Math.ceil(remaining / months);
+    prazoLine = `<div class="goal-deadline">Prazo: ${fmtDate(g.deadline)} · ~${fmtCurrency(monthlyEst)}/mês</div>`;
+  } else {
+    prazoLine = `<div class="goal-deadline">Sem aporte programado</div>`;
+  }
+
+  const priorityTag = `<span class="tag ${GOAL_PRIORITY_TAG[g.priority] || 'tag-gold'}">${GOAL_PRIORITY_LABEL[g.priority] || 'Média'}</span>`;
+  const pausedTag = isPaused ? ' <span class="tag tag-blue">Pausado</span>' : '';
+
+  const pauseResumeBtn = (!isCompleted && g.monthlyContribution > 0)
+    ? (isPaused
+        ? `<button class="btn btn-outline btn-sm form-btn-full" onclick="doResumeGoal('${g.id}')">▶ Retomar aporte</button>`
+        : `<button class="btn btn-outline btn-sm form-btn-full" onclick="doPauseGoal('${g.id}')">⏸ Pausar aporte</button>`)
+    : '';
+
+  const historyBlock = g.history.length > 0 ? `
+    <div class="goal-history-toggle" onclick="toggleGoalHistory('${g.id}')" style="font-size:0.78rem;color:var(--muted-fg);cursor:pointer;margin-top:0.5rem;text-align:center">Ver histórico (${g.history.length}) ▾</div>
+    <div id="goal-history-${g.id}" style="display:none;margin-top:0.5rem;max-height:220px;overflow-y:auto">
+      ${g.history.map(h => `
+        <div style="display:flex;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border);font-size:0.8rem">
+          <div>
+            <div>${fmtDate(h.date)}</div>
+            <div style="color:var(--muted-fg);font-size:0.72rem">${h.origin === 'manual' ? 'Aporte manual' : 'Aporte programado'}</div>
           </div>
-        </div>
-        <div style="display:flex;gap:0.25rem">
-          <button class="btn-icon" onclick="openEditGoal('${g.id}')" title="Editar">✏</button>
-          <button class="btn-icon" onclick="doDeleteGoal('${g.id}')" title="Excluir">✕</button>
+          <div style="text-align:right">
+            <div style="font-weight:600">${fmtCurrency(h.amount)}</div>
+            <div style="color:var(--muted-fg);font-size:0.72rem">Total: ${fmtCurrency(h.accumulated)}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  return `<div class="goal-card${isCompleted ? ' goal-completed' : ''}">
+    <div class="goal-top">
+      <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0">
+        <div class="goal-emoji-wrap">${esc(g.emoji || '🎯')}</div>
+        <div class="goal-name-wrap">
+          <div class="goal-name">${esc(g.name)}</div>
+          <div class="goal-pct-label">${pct}% concluído ${priorityTag}${pausedTag}</div>
         </div>
       </div>
-      <div class="goal-amounts">
-        <span class="goal-saved">${fmtCurrency(g.saved)}</span>
-        <span class="goal-target">de ${fmtCurrency(g.target)}</span>
+      <div style="display:flex;gap:0.25rem">
+        <button class="btn-icon" onclick="openEditGoal('${g.id}')" title="Editar">✏</button>
+        <button class="btn-icon" onclick="doDeleteGoal('${g.id}')" title="Excluir">✕</button>
       </div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-      ${g.deadline ? `<div class="goal-deadline">Prazo: ${fmtDate(g.deadline)}${monthly ? ' · ~' + fmtCurrency(monthly) + '/mês' : ''}</div>` : ''}
-      <button class="btn btn-outline form-btn-full" onclick="openAddToGoal('${g.id}')">Guardar Dinheiro</button>
-    </div>`;
-  }).join('') + `</div>`;
+    </div>
+    <div class="goal-amounts">
+      <span class="goal-saved">${fmtCurrency(g.saved)}</span>
+      <span class="goal-target">de ${fmtCurrency(g.target)}</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+    ${g.monthlyContribution > 0 ? `<div class="goal-deadline">Aporte mensal: ${fmtCurrency(g.monthlyContribution)} · dia ${g.contributionDay}</div>` : ''}
+    ${prazoLine}
+    ${isCompleted ? `<div class="goal-celebrate">🎉 Meta alcançada! Você juntou ${fmtCurrency(g.saved)} para ${esc(g.name)}.</div>` : ''}
+    ${!isCompleted ? `<button class="btn btn-outline form-btn-full" onclick="openAddToGoal('${g.id}')">Guardar Dinheiro</button>` : ''}
+    ${pauseResumeBtn ? `<div style="margin-top:0.5rem">${pauseResumeBtn}</div>` : ''}
+    ${historyBlock}
+  </div>`;
+}
+
+function toggleGoalHistory(id) {
+  const el = document.getElementById('goal-history-' + id);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function doPauseGoal(id) {
+  confirmDialog('Pausar o aporte programado desta meta? Nenhum novo compromisso será gerado até você retomar.', () => {
+    Finance.pauseGoal(id);
+    showToast('Aporte pausado', 'success');
+    renderGoals();
+  });
+}
+
+function doResumeGoal(id) {
+  Finance.resumeGoal(id);
+  showToast('Aporte retomado a partir do próximo mês', 'success');
+  renderGoals();
 }
 
 // ─── TX ROW RENDERER ─────────────────────────────────────────────────────────
@@ -842,7 +911,11 @@ function doDeleteTx(id) {
   confirmDialog('Excluir este lançamento?', () => { Finance.deleteTransaction(id); showToast('Excluído'); refreshAll(); });
 }
 function doDeleteGoal(id) {
-  confirmDialog('Excluir esta meta?', () => { Finance.deleteGoal(id); showToast('Meta excluída'); renderGoals(); });
+  confirmDialog('Excluir esta meta? Os aportes já realizados continuam no seu histórico financeiro; apenas os aportes futuros serão cancelados.', () => {
+    Finance.deleteGoal(id);
+    showToast('Meta excluída', 'success');
+    renderGoals();
+  });
 }
 function deleteQuick(id) {
   Finance.deleteQuickExpense(id);
@@ -1308,6 +1381,21 @@ function renderReports() {
       '<div class="rpt-kpi"><div class="rpt-kpi-icon">📈</div><div class="rpt-kpi-label">Média diária</div><div class="rpt-kpi-value">' + fmtCurrency(d.avgDaily) + '</div></div>';
   }
 
+  const goalSavingsEl = document.getElementById('rpt-goal-savings');
+  if (goalSavingsEl) {
+    const goalTotal = Finance.getGoalSavedTotalForMonth(year, month);
+    if (goalTotal > 0) {
+      goalSavingsEl.style.display = '';
+      goalSavingsEl.innerHTML = `<div class="summary-card" style="margin-bottom:1.25rem">
+        <div class="summary-card-label">🎯 Valores guardados (metas) — não incluído no total gasto</div>
+        <div class="summary-card-value primary">${fmtCurrency(goalTotal)}</div>
+      </div>`;
+    } else {
+      goalSavingsEl.style.display = 'none';
+      goalSavingsEl.innerHTML = '';
+    }
+  }
+
   _renderRptChart(d);
   _renderRptCatList(d);
 }
@@ -1455,6 +1543,7 @@ function _renderRptCatList(d) {
 // _processSelectedInvoices — chaves "cardId::year::month" para faturas agrupadas
 let _processSelectedTxIds = new Set();
 let _processSelectedInvoices = new Set();
+let _processSelectedGoals = new Set();
 
 // Navegação de mês independente da Visão Geral. Sempre reinicia no mês
 // vigente toda vez que o modal é aberto (não é persistida ao fechar).
@@ -1498,11 +1587,17 @@ function renderProcessList() {
     .map(card => ({ card, invoice: Finance.getCardInvoice(y, m, card) }))
     .filter(({ invoice }) => invoice.total > 0 && !invoice.allPaid);
 
+  // Aportes programados de metas (GUARDAR) — uma linha por meta com ocorrência pendente
+  const goalOccurrences = Finance.getActiveGoals()
+    .map(g => ({ goal: g, occ: Finance.getGoalOccurrenceForMonth(g, y, m) }))
+    .filter(({ occ }) => occ && !occ.processed);
+
   _processSelectedTxIds = new Set();
   _processSelectedInvoices = new Set();
+  _processSelectedGoals = new Set();
 
   const listEl = document.getElementById('process-list');
-  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0 || cardInvoices.length > 0;
+  const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0 || cardInvoices.length > 0 || goalOccurrences.length > 0;
 
   if (!hasAny) {
     listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[m]}/${y} 🎉</div>`;
@@ -1541,6 +1636,18 @@ function renderProcessList() {
       </label>`;
     };
 
+    // Linha de aporte programado de meta (seção GUARDAR)
+    const renderGoalRow = (goal, occ) => {
+      return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:transparent">
+        <input type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('goal','${occ.id}',this.checked)" />
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(goal.emoji || '🎯')} ${esc(goal.name)}</div>
+          <div style="font-size:0.78rem;color:var(--muted-fg)">Aporte mensal · ${fmtDate(occ.dueDate)}</div>
+        </div>
+        <div style="font-weight:600;color:var(--primary);white-space:nowrap">${fmtCurrency(occ.amount)}</div>
+      </label>`;
+    };
+
     let html = '';
 
     if (pendingIncome.length > 0) {
@@ -1558,6 +1665,11 @@ function renderProcessList() {
       html += pendingExpenses.map(t => renderTxRow(t, 'var(--destructive)')).join('');
     }
 
+    if (goalOccurrences.length > 0) {
+      html += `<div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--primary);margin:0.75rem 0 0.5rem">🎯 Guardar</div>`;
+      html += goalOccurrences.map(({ goal, occ }) => renderGoalRow(goal, occ)).join('');
+    }
+
     listEl.innerHTML = html;
   }
 }
@@ -1565,6 +1677,8 @@ function renderProcessList() {
 function toggleProcessItem(kind, id, checked) {
   if (kind === 'invoice') {
     if (checked) _processSelectedInvoices.add(id); else _processSelectedInvoices.delete(id);
+  } else if (kind === 'goal') {
+    if (checked) _processSelectedGoals.add(id); else _processSelectedGoals.delete(id);
   } else {
     if (checked) _processSelectedTxIds.add(id); else _processSelectedTxIds.delete(id);
   }
@@ -1573,7 +1687,11 @@ function toggleProcessItem(kind, id, checked) {
 function confirmProcessPayments() {
   const txIds = Array.from(_processSelectedTxIds);
   const invoiceKeys = Array.from(_processSelectedInvoices);
-  if (txIds.length === 0 && invoiceKeys.length === 0) { showToast('Nenhum item selecionado', 'error'); return; }
+  const goalKeys = Array.from(_processSelectedGoals);
+  if (txIds.length === 0 && invoiceKeys.length === 0 && goalKeys.length === 0) {
+    showToast('Nenhum item selecionado', 'error');
+    return;
+  }
 
   if (txIds.length > 0) Finance.processPayments(txIds);
 
@@ -1586,7 +1704,14 @@ function confirmProcessPayments() {
     Finance.markInvoicePaid(year, month, card);
   });
 
-  const total = txIds.length + invoiceKeys.length;
+  goalKeys.forEach(key => {
+    const idx = key.indexOf('::');
+    const goalId = key.slice(0, idx);
+    const competency = key.slice(idx + 2);
+    Finance.processGoalContribution(goalId, competency);
+  });
+
+  const total = txIds.length + invoiceKeys.length + goalKeys.length;
   showToast(`${total} item(s) processado(s)!`, 'success');
   closeModal('process-modal');
   refreshAll();
@@ -1607,11 +1732,14 @@ function openAddGoal() {
   State.editGoalId = null;
   document.getElementById('goal-form').reset();
   document.getElementById('goal-emoji').value = '🎯';
+  document.getElementById('goal-priority').value = 'media';
+  document.getElementById('goal-day').value = 10;
   document.getElementById('goal-modal-title').textContent = 'Nova Meta';
+  updateGoalPreview();
   openModal('goal-modal');
 }
 function openEditGoal(id) {
-  const g = Storage.getGoals().find(g => g.id === id);
+  const g = Finance.getGoalById(id);
   if (!g) return;
   State.editGoalId = id;
   document.getElementById('goal-modal-title').textContent = 'Editar Meta';
@@ -1620,21 +1748,58 @@ function openEditGoal(id) {
   document.getElementById('goal-target').value   = g.target;
   document.getElementById('goal-saved').value    = g.saved;
   document.getElementById('goal-deadline').value = g.deadline || '';
+  document.getElementById('goal-priority').value = g.priority || 'media';
+  document.getElementById('goal-monthly').value  = g.monthlyContribution || '';
+  document.getElementById('goal-day').value      = g.contributionDay || 10;
+  updateGoalPreview();
   openModal('goal-modal');
 }
+
+// Atualiza em tempo real (item 4): recalcula prazo/conclusão a cada
+// alteração de meta, guardado, aporte mensal ou dia do aporte.
+function updateGoalPreview() {
+  const previewEl = document.getElementById('goal-preview');
+  if (!previewEl) return;
+  const target  = parseFloat(document.getElementById('goal-target').value) || 0;
+  const saved   = parseFloat(document.getElementById('goal-saved').value) || 0;
+  const monthly = parseFloat(document.getElementById('goal-monthly').value) || 0;
+  const remaining = Math.max(0, target - saved);
+
+  if (target > 0 && remaining <= 0) {
+    previewEl.innerHTML = `<div class="goal-preview-line">Meta alcançada</div>`;
+    return;
+  }
+  if (!monthly || monthly <= 0) {
+    previewEl.innerHTML = `<div class="goal-preview-line">Sem aporte programado</div>`;
+    return;
+  }
+  const months = Math.ceil(remaining / monthly);
+  const base = new Date();
+  let y = base.getFullYear(), m = base.getMonth() + months;
+  while (m > 11) { m -= 12; y++; }
+  previewEl.innerHTML =
+    `<div class="goal-preview-line">Restante: ${fmtCurrency(remaining)}</div>` +
+    `<div class="goal-preview-line">Prazo estimado: ${months} ${months === 1 ? 'mês' : 'meses'}</div>` +
+    `<div class="goal-preview-line">Conclusão prevista: ${MONTHS_PT[m]}/${y}</div>`;
+}
+
 function saveGoalForm() {
   const name     = document.getElementById('goal-name').value.trim();
   const emoji    = document.getElementById('goal-emoji').value || '🎯';
   const target   = parseFloat(document.getElementById('goal-target').value);
   const saved    = parseFloat(document.getElementById('goal-saved').value) || 0;
   const deadline = document.getElementById('goal-deadline').value;
+  const priority = document.getElementById('goal-priority').value || 'media';
+  const monthlyContribution = parseFloat(document.getElementById('goal-monthly').value) || 0;
+  const contributionDay = Math.min(31, Math.max(1, parseInt(document.getElementById('goal-day').value, 10) || 10));
   if (!name)           { showToast('Informe o nome da meta', 'error'); return; }
   if (!target || target <= 0) { showToast('Informe um valor alvo válido', 'error'); return; }
+  const data = { name, emoji, target, saved, deadline, priority, monthlyContribution, contributionDay };
   if (State.editGoalId) {
-    Finance.updateGoal(State.editGoalId, { name, emoji, target, saved, deadline });
+    Finance.updateGoal(State.editGoalId, data);
     showToast('Meta atualizada', 'success');
   } else {
-    Finance.addGoal({ name, emoji, target, saved, deadline });
+    Finance.addGoal(data);
     showToast('Meta criada', 'success');
   }
   closeModal('goal-modal');
@@ -1643,7 +1808,7 @@ function saveGoalForm() {
 let _addToGoalId = null;
 function openAddToGoal(id) {
   _addToGoalId = id;
-  const g = Storage.getGoals().find(g => g.id === id);
+  const g = Finance.getGoalById(id);
   document.getElementById('addgoal-modal-title').textContent = 'Guardar em: ' + (g ? g.name : '');
   document.getElementById('addgoal-amount').value = '';
   openModal('addgoal-modal');
@@ -1651,10 +1816,21 @@ function openAddToGoal(id) {
 function saveAddToGoal() {
   const amount = parseFloat(document.getElementById('addgoal-amount').value);
   if (!amount || amount <= 0) { showToast('Informe um valor', 'error'); return; }
-  Finance.addToGoal(_addToGoalId, amount);
-  showToast('Valor guardado!', 'success');
-  closeModal('addgoal-modal');
-  renderGoals();
+  const g = Finance.getGoalById(_addToGoalId);
+  const doSave = () => {
+    Finance.addToGoal(_addToGoalId, amount);
+    showToast('Valor guardado!', 'success');
+    closeModal('addgoal-modal');
+    renderGoals();
+  };
+  if (g) {
+    const remaining = Math.max(0, g.target - g.saved);
+    if (remaining > 0 && amount > remaining) {
+      confirmDialog(`Esse valor é maior que o restante para a meta (${fmtCurrency(remaining)}). O excedente não será somado. Continuar?`, doSave);
+      return;
+    }
+  }
+  doSave();
 }
 
 // ─── BACKUP ──────────────────────────────────────────────────────────────────
@@ -1819,6 +1995,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-add-goal').addEventListener('click', openAddGoal);
   document.getElementById('close-addgoal-modal').addEventListener('click', () => closeModal('addgoal-modal'));
   document.getElementById('addgoal-save-btn').addEventListener('click', saveAddToGoal);
+  ['goal-target', 'goal-saved', 'goal-monthly', 'goal-day'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', updateGoalPreview);
+  });
 
   // ── Account modal ─────────────────────────────────────────────────────────
   document.getElementById('close-account-modal').addEventListener('click', () => closeModal('account-modal'));
