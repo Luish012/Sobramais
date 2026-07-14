@@ -9,6 +9,13 @@ function fmtDate(str) {
   const [y, m, d] = str.split('-');
   return `${d}/${m}/${y}`;
 }
+function fmtDateTimeSimple(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
 function fmtPayment(method) {
   const map = { pix:'Pix', credito:'Crédito', debito:'Débito', dinheiro:'Dinheiro', transferencia:'Transferência', boleto:'Boleto' };
   return map[method] || method;
@@ -59,7 +66,7 @@ function showView(v) {
   const allViews = [
     'view-loading','view-login','view-signup','view-forgot-pw',
     'view-confirm-email','view-reset-pw','view-subscription',
-    'view-home','view-dashboard',
+    'view-home','view-dashboard','view-admin',
   ];
   allViews.forEach(id => {
     const el = document.getElementById(id);
