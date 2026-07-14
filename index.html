@@ -466,6 +466,8 @@
       </div>
       <!-- KPIs -->
       <div class="rpt-kpi-grid" id="rpt-summary"></div>
+      <!-- Valores guardados (metas) — separado do total de gastos -->
+      <div id="rpt-goal-savings" style="display:none"></div>
       <!-- Gráfico + Lista (layout responsivo) -->
       <div class="rpt-layout">
         <div class="rpt-chart-wrap">
@@ -826,10 +828,29 @@
             <input id="goal-saved" class="form-input" type="number" step="0.01" min="0" placeholder="0,00" />
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Aporte mensal (R$)</label>
+            <input id="goal-monthly" class="form-input" type="number" step="0.01" min="0" placeholder="0,00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dia do aporte</label>
+            <input id="goal-day" class="form-input" type="number" min="1" max="31" placeholder="10" />
+          </div>
+        </div>
         <div class="form-group">
-          <label class="form-label">Prazo (opcional)</label>
+          <label class="form-label">Prioridade</label>
+          <select id="goal-priority" class="form-select">
+            <option value="alta">Alta</option>
+            <option value="media" selected>Média</option>
+            <option value="baixa">Baixa</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prazo manual (opcional, usado apenas sem aporte mensal)</label>
           <input id="goal-deadline" class="form-input" type="date" />
         </div>
+        <div id="goal-preview" class="goal-preview"></div>
         <div class="form-footer">
           <button id="goal-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Meta</button>
         </div>
