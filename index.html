@@ -782,6 +782,11 @@
       <button id="close-process-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
+      <div class="rpt-month-nav">
+        <button class="btn btn-ghost btn-sm" onclick="processChangeMonth(-1)">‹</button>
+        <span id="process-month-label" class="rpt-month-txt"></span>
+        <button class="btn btn-ghost btn-sm" onclick="processChangeMonth(1)">›</button>
+      </div>
       <div id="process-list"></div>
       <div class="form-footer">
         <button id="process-confirm-btn" type="button" class="btn btn-primary form-btn-full">Confirmar</button>
