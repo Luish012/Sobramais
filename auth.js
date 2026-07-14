@@ -73,6 +73,10 @@ const Auth = {
         Subscription.renderView(sub);
         showAuthView('subscription');
       }
+
+      // Painel administrativo e notificações — isolados, nunca bloqueiam o login.
+      try { Admin.checkAccess(); } catch (e) { console.warn('[Admin.checkAccess]', e.message || e); }
+      try { Notifications.syncOnLogin(); } catch (e) { console.warn('[Notifications.syncOnLogin]', e.message || e); }
     } catch (e) {
       console.error('[afterLogin] erro:', e);
       showAuthView('login');
