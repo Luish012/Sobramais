@@ -80,6 +80,14 @@ const Storage = {
       name: g.name, emoji: g.emoji,
       target: g.target, saved: g.saved,
       deadline: g.deadline || null,
+      monthly_contribution: g.monthlyContribution || 0,
+      contribution_day: g.contributionDay || 10,
+      priority: g.priority || 'media',
+      status: g.status || 'active',
+      start_date: g.startDate || null,
+      history: g.history || [],
+      deleted: !!g.deleted,
+      updated_at: g.updatedAt || new Date().toISOString(),
       created_at: g.createdAt || new Date().toISOString(),
     };
   },
@@ -159,7 +167,16 @@ const Storage = {
       this._set('GOALS', goalRows.map(r => ({
         id: r.id, name: r.name, emoji: r.emoji,
         target: Number(r.target), saved: Number(r.saved),
-        deadline: r.deadline, createdAt: r.created_at,
+        deadline: r.deadline,
+        monthlyContribution: Number(r.monthly_contribution) || 0,
+        contributionDay: Number(r.contribution_day) || 10,
+        priority: r.priority || 'media',
+        status: r.status || 'active',
+        startDate: r.start_date || null,
+        history: Array.isArray(r.history) ? r.history : [],
+        deleted: !!r.deleted,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
       })));
     }
 
