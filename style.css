@@ -394,6 +394,7 @@ a { color: inherit; text-decoration: none; }
 .tag-purple { background: hsla(270,60%,60%,0.10); color: hsl(270,60%,45%); }
 .tag-gold   { background: var(--primary-dim); color: hsl(42,60%,40%); }
 .tag-green  { background: var(--success-dim); color: var(--success); }
+.tag-red    { background: hsla(0,72%,55%,0.10); color: hsl(0,65%,45%); }
 
 /* Pay/Undo */
 .btn-pay { background: var(--fg); color: var(--bg); font-size: 0.8rem; font-weight: 500; padding: 0.35rem 0.875rem; border-radius: var(--r-full); transition: all var(--ease); border: none; }
@@ -433,6 +434,11 @@ a { color: inherit; text-decoration: none; }
 .progress-bar   { height: 8px; background: var(--muted); border-radius: 999px; overflow: hidden; margin-bottom: 1.25rem; }
 .progress-fill  { height: 100%; background: var(--primary); border-radius: 999px; transition: width 0.5s ease; }
 .goal-deadline  { font-size: 0.78rem; color: var(--muted-fg); margin-bottom: 0.75rem; }
+.goal-card.goal-completed { border-color: var(--success); }
+.goal-celebrate { font-size: 0.82rem; font-weight: 500; color: var(--success); background: var(--success-dim); border-radius: var(--r-sm); padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; }
+.goal-preview   { background: var(--muted); border-radius: var(--r-sm); padding: 0.6rem 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--fg); }
+.goal-preview-line { padding: 0.1rem 0; }
+.goal-history-toggle:hover { color: var(--fg); }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* CARD TAB                                                                    */
