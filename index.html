@@ -226,9 +226,14 @@
   <div class="home-inner">
 
     <!-- Saudação personalizada -->
-    <div id="home-greeting" class="home-greeting-block">
-      <div id="home-greeting-name" class="home-greeting-name">Olá! 👋</div>
-      <div id="home-greeting-phrase" class="home-greeting-phrase"></div>
+    <div id="home-greeting" class="home-greeting-block" style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem">
+      <div>
+        <div id="home-greeting-name" class="home-greeting-name">Olá! 👋</div>
+        <div id="home-greeting-phrase" class="home-greeting-phrase"></div>
+      </div>
+      <button class="notif-bell-btn" type="button" title="Notificações" onclick="Notifications.openPanel()">
+        🔔<span class="notif-bell-badge" style="display:none">0</span>
+      </button>
     </div>
 
     <!-- Aviso de trial ativo -->
@@ -293,6 +298,9 @@
         <span class="dash-title">Painel Financeiro</span>
       </div>
       <div class="dash-header-actions">
+        <button class="notif-bell-btn notif-bell-btn-header" type="button" title="Notificações" onclick="Notifications.openPanel()">
+          🔔<span class="notif-bell-badge" style="display:none">0</span>
+        </button>
         <button id="btn-import" class="dash-header-btn" title="Importar backup">↑ Importar</button>
         <button id="btn-export" class="dash-header-btn" title="Exportar backup">↓ Backup</button>
         <button id="btn-account" class="dash-header-btn" title="Minha conta">👤 Conta</button>
@@ -470,6 +478,160 @@
 
   </div><!-- end dashboard-scroll -->
 </div><!-- end view-dashboard -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- PAINEL ADMINISTRATIVO                                                -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="view-admin" style="display:none;flex-direction:column;height:100dvh;background:var(--bg)">
+  <header class="dash-header">
+    <div class="dash-header-inner">
+      <div style="display:flex;align-items:center;gap:1rem">
+        <button class="btn-back" type="button" onclick="Admin.closePanel()">← Início</button>
+        <span class="dash-title">Painel Administrativo</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="admin-nav">
+    <button class="admin-nav-btn active" type="button" data-adminsection="overview" onclick="Admin.showSection('overview')">Visão Geral</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="users" onclick="Admin.showSection('users')">Usuários</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="subscriptions" onclick="Admin.showSection('subscriptions')">Assinaturas</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="trials" onclick="Admin.showSection('trials')">Trials</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="support" onclick="Admin.showSection('support')">Suporte</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="notifications" onclick="Admin.showSection('notifications')">Notificações</button>
+  </nav>
+
+  <div class="admin-scroll">
+    <div class="admin-section active" data-adminsection="overview">
+      <div id="admin-overview-cards" class="admin-cards-grid"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="users">
+      <input id="admin-users-search" class="form-input" type="text" placeholder="Buscar por nome, e-mail, CPF ou ID..." style="margin-bottom:0.75rem" oninput="Admin.loadUsers()" />
+      <div class="admin-filter-row">
+        <button class="admin-filter-btn active" type="button" data-adminuserfilter="todos" onclick="Admin.setUserFilter('todos')">Todos</button>
+        <button class="admin-filter-btn" type="button" data-adminuserfilter="trial" onclick="Admin.setUserFilter('trial')">Trial</button>
+        <button class="admin-filter-btn" type="button" data-adminuserfilter="ativos" onclick="Admin.setUserFilter('ativos')">Ativos</button>
+        <button class="admin-filter-btn" type="button" data-adminuserfilter="inativos" onclick="Admin.setUserFilter('inativos')">Inativos</button>
+        <button class="admin-filter-btn" type="button" data-adminuserfilter="pendentes" onclick="Admin.setUserFilter('pendentes')">Pendentes</button>
+        <button class="admin-filter-btn" type="button" data-adminuserfilter="cancelados" onclick="Admin.setUserFilter('cancelados')">Cancelados</button>
+      </div>
+      <div id="admin-users-list" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="subscriptions">
+      <div class="admin-filter-row">
+        <button class="admin-filter-btn active" type="button" data-adminsubfilter="todas" onclick="Admin.setSubFilter('todas')">Todas</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="ativa" onclick="Admin.setSubFilter('ativa')">Ativas</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="trial" onclick="Admin.setSubFilter('trial')">Trial</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="vencida" onclick="Admin.setSubFilter('vencida')">Trial vencido</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="cancelada" onclick="Admin.setSubFilter('cancelada')">Canceladas</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="vitalicia" onclick="Admin.setSubFilter('vitalicia')">Vitalícias</button>
+        <button class="admin-filter-btn" type="button" data-adminsubfilter="manual" onclick="Admin.setSubFilter('manual')">Manuais</button>
+      </div>
+      <div id="admin-subs-list" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="trials">
+      <div class="admin-filter-row">
+        <button class="admin-filter-btn active" type="button" data-admintrialfilter="todos" onclick="Admin.setTrialFilter('todos')">Todos</button>
+        <button class="admin-filter-btn" type="button" data-admintrialfilter="ativos" onclick="Admin.setTrialFilter('ativos')">Ativos</button>
+        <button class="admin-filter-btn" type="button" data-admintrialfilter="vencendo_2dias" onclick="Admin.setTrialFilter('vencendo_2dias')">Vencendo (≤2d)</button>
+        <button class="admin-filter-btn" type="button" data-admintrialfilter="vencidos" onclick="Admin.setTrialFilter('vencidos')">Vencidos</button>
+      </div>
+      <div id="admin-trials-list" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="support">
+      <div class="admin-filter-row">
+        <button class="admin-filter-btn active" type="button" data-adminticketfilter="todos" onclick="Admin.setTicketFilter('todos')">Todos</button>
+        <button class="admin-filter-btn" type="button" data-adminticketfilter="aguardando" onclick="Admin.setTicketFilter('aguardando')">Aguardando</button>
+        <button class="admin-filter-btn" type="button" data-adminticketfilter="respondidos" onclick="Admin.setTicketFilter('respondidos')">Respondidos</button>
+        <button class="admin-filter-btn" type="button" data-adminticketfilter="encerrados" onclick="Admin.setTicketFilter('encerrados')">Encerrados</button>
+      </div>
+      <div id="admin-tickets-list" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="notifications">
+      <div class="form-group">
+        <label class="form-label">Audiência</label>
+        <select id="admin-notif-audience" class="form-input" onchange="document.getElementById('admin-notif-userid-group').style.display = this.value==='user' ? '' : 'none'">
+          <option value="all">Todos os usuários</option>
+          <option value="trial">Usuários em trial</option>
+          <option value="active">Assinantes ativos</option>
+          <option value="inactive">Usuários inativos</option>
+          <option value="user">Usuário específico</option>
+        </select>
+      </div>
+      <div id="admin-notif-userid-group" class="form-group" style="display:none">
+        <label class="form-label">ID do usuário</label>
+        <input id="admin-notif-userid" class="form-input" type="text" placeholder="cole o ID do usuário" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Título</label>
+        <input id="admin-notif-title" class="form-input" type="text" placeholder="Título da notificação" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mensagem</label>
+        <textarea id="admin-notif-message" class="form-input" rows="4" placeholder="Escreva a mensagem..."></textarea>
+      </div>
+      <div id="admin-notif-error" style="color:var(--destructive);font-size:0.82rem;margin-bottom:0.75rem"></div>
+      <button class="btn btn-primary form-btn-full" type="button" onclick="Admin.sendNotification()">Enviar notificação</button>
+    </div>
+  </div>
+</div><!-- end view-admin -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Detalhe do usuário (admin)                                    -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="admin-user-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Usuário</span>
+      <button class="modal-close" type="button" onclick="closeModal('admin-user-modal')">✕</button>
+    </div>
+    <div id="admin-user-detail" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Chamado (admin)                                               -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="admin-ticket-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="admin-ticket-title" class="modal-title">Chamado</span>
+      <button class="modal-close" type="button" onclick="closeModal('admin-ticket-modal')">✕</button>
+    </div>
+    <div id="admin-ticket-messages" class="chat-messages"></div>
+    <div class="chat-input-row">
+      <input id="admin-ticket-input" class="form-input" type="text" placeholder="Escreva uma resposta..." autocomplete="off" />
+      <button id="admin-ticket-send-btn" type="button" class="btn btn-primary btn-sm" onclick="Admin.sendTicketReply()">Enviar</button>
+    </div>
+    <div style="padding:0 1.5rem 1.25rem;display:flex;gap:0.5rem">
+      <button id="admin-ticket-close-btn" type="button" class="btn btn-outline form-btn-full" style="color:var(--destructive);border-color:var(--destructive)" onclick="Admin.closeTicket()">Encerrar Chamado</button>
+      <button id="admin-ticket-reopen-btn" type="button" class="btn btn-outline form-btn-full" style="display:none" onclick="Admin.reopenTicket()">Reabrir Chamado</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Notificações                                                  -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="notif-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Notificações</span>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <button class="acct-inline-link" type="button" style="font-size:0.78rem" onclick="Notifications.markAllRead()">Marcar todas como lidas</button>
+        <button class="modal-close" type="button" onclick="closeModal('notif-modal')">✕</button>
+      </div>
+    </div>
+    <div id="notif-list" class="modal-body"></div>
+  </div>
+</div>
 
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
@@ -789,6 +951,15 @@
 
       <!-- ── Suporte ───────────────────────────────────────────────────── -->
       <div class="acct-section">
+        <div class="acct-section-title">Administração</div>
+        <div class="acct-menu">
+          <button class="acct-menu-item admin-panel-btn" type="button" style="display:none" onclick="closeModal('account-modal');Admin.openPanel()">
+            <span>🛠️ Painel Administrativo</span><span class="acct-menu-arrow">›</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="acct-section">
         <div class="acct-section-title">Suporte</div>
         <div class="acct-menu">
           <button class="acct-menu-item" type="button" onclick="Support.openNewTicket()">
@@ -999,6 +1170,8 @@
 <script src="subscription.js"></script>
 <script src="content.js"></script>
 <script src="support.js"></script>
+<script src="admin.js"></script>
+<script src="notifications.js"></script>
 <script src="app.js"></script>
 
 </body>
