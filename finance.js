@@ -147,6 +147,134 @@ function getRecurringOccurrence(tx, year, month, allTxs) {
   };
 }
 
+// ─── GOALS: HELPERS (Objetivos com Poupança Programada) ──────────────────────
+// Metas antigas (sem os novos campos) continuam funcionando: valores padrão
+// são aplicados apenas em memória, nunca reescritos silenciosamente no
+// registro salvo — só passam a persistir quando o usuário editar a meta.
+function goalDefaults(g) {
+  return {
+    ...g,
+    monthlyContribution: Number(g.monthlyContribution) || 0,
+    contributionDay: Math.min(31, Math.max(1, Number(g.contributionDay) || 10)),
+    priority: g.priority || 'media',
+    status: g.status || 'active',
+    startDate: g.startDate || (g.createdAt ? g.createdAt.split('T')[0] : todayStr()),
+    history: Array.isArray(g.history) ? g.history : [],
+    updatedAt: g.updatedAt || g.createdAt || new Date().toISOString(),
+    deleted: !!g.deleted,
+  };
+}
+
+function goalCompetencyKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+function goalRemaining(g) {
+  return Math.max(0, Number(g.target) - Number(g.saved));
+}
+
+// Meses necessários = arredondar para cima((meta - guardado) / aporte mensal)
+function goalMonthsNeeded(g) {
+  const remaining = goalRemaining(g);
+  if (remaining <= 0) return 0;
+  if (!g.monthlyContribution || g.monthlyContribution <= 0) return null;
+  return Math.ceil(remaining / g.monthlyContribution);
+}
+
+// Data prevista de conclusão a partir de hoje, respeitando o dia do aporte
+// (dias além do fim do mês usam o último dia válido — via buildDate).
+function goalEstimatedCompletion(g) {
+  const remaining = goalRemaining(g);
+  if (remaining <= 0) return { label: 'Meta alcançada', date: null, months: 0 };
+  if (!g.monthlyContribution || g.monthlyContribution <= 0) {
+    return { label: 'Sem aporte programado', date: null, months: null };
+  }
+  const months = goalMonthsNeeded(g);
+  const base = new Date();
+  let year = base.getFullYear(), month = base.getMonth() + months;
+  while (month > 11) { month -= 12; year++; }
+  const dateStr = buildDate(year, month, g.contributionDay);
+  return { label: `${MONTHS_PT[month]}/${year}`, date: dateStr, months };
+}
+
+function getGoalsForCompetency() {
+  return Storage.getGoals().filter(g => !g.deleted).map(goalDefaults);
+}
+
+// Retorna a ocorrência (compromisso) de aporte programado de uma meta para o
+// competência (year, month) informado — ou null se não houver ocorrência
+// naquele mês (meta pausada/concluída, sem aporte definido, ou mês anterior
+// ao início do cronograma). Se já processada, retorna com processed:true.
+function getGoalOccurrenceForMonth(goal, year, month) {
+  const g = goalDefaults(goal);
+  if (g.status !== 'active' && g.status !== 'completed') return null;
+  if (!g.monthlyContribution || g.monthlyContribution <= 0) return null;
+
+  const startD = parseLocalDate(g.startDate);
+  if (!monthGTE(year, month, startD.getFullYear(), startD.getMonth())) return null;
+
+  const key = goalCompetencyKey(year, month);
+  const processed = g.history.find(h => h.origin === 'scheduled' && h.competency === key);
+  if (processed) {
+    return {
+      id: `${g.id}::${key}`, goalId: g.id, competency: key,
+      dueDate: processed.date, amount: processed.amount, processed: true,
+    };
+  }
+
+  const remaining = goalRemaining(g);
+  if (remaining <= 0) return null; // meta alcançada — sem novos compromissos
+
+  const amount = Math.min(g.monthlyContribution, remaining); // última ocorrência pode ser menor
+  const dueDate = buildDate(year, month, g.contributionDay);
+  return { id: `${g.id}::${key}`, goalId: g.id, competency: key, dueDate, amount, processed: false };
+}
+
+// Projeta os próximos compromissos (visual) simulando a redução do restante
+// a cada ocorrência não processada — usado apenas para pré-visualização,
+// nunca grava nada.
+function projectGoalOccurrences(goal, maxCount) {
+  const g = goalDefaults(goal);
+  const list = [];
+  if (g.status !== 'active' || !g.monthlyContribution || g.monthlyContribution <= 0) return list;
+  let remaining = goalRemaining(g);
+  if (remaining <= 0) return list;
+
+  const startD = parseLocalDate(g.startDate);
+  const today = todayDate();
+  const cursor = startD > today ? startD : today;
+  let cy = cursor.getFullYear(), cm = cursor.getMonth();
+  const limit = maxCount || 6;
+
+  while (remaining > 0 && list.length < limit) {
+    const key = goalCompetencyKey(cy, cm);
+    const already = g.history.find(h => h.origin === 'scheduled' && h.competency === key);
+    if (already) {
+      remaining -= already.amount;
+    } else {
+      const amount = Math.min(g.monthlyContribution, remaining);
+      list.push({ competency: key, dueDate: buildDate(cy, cm, g.contributionDay), amount });
+      remaining -= amount;
+    }
+    cm++; if (cm > 11) { cm = 0; cy++; }
+  }
+  return list;
+}
+
+function sumProcessedGoalContributions(year, month) {
+  const key = goalCompetencyKey(year, month);
+  return getGoalsForCompetency().reduce((s, g) =>
+    s + g.history.filter(h => h.origin === 'scheduled' && h.competency === key)
+                  .reduce((s2, h) => s2 + h.amount, 0), 0);
+}
+
+function sumPendingGoalContributions(year, month) {
+  return getGoalsForCompetency().reduce((s, g) => {
+    const occ = getGoalOccurrenceForMonth(g, year, month);
+    return (occ && !occ.processed) ? s + occ.amount : s;
+  }, 0);
+}
+
 // ─── FINANCE CORE ─────────────────────────────────────────────────────────────
 const Finance = {
 
@@ -397,7 +525,9 @@ const Finance = {
       })
       .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
-    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal;
+    const goalProcessed = sumProcessedGoalContributions(year, month);
+
+    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal - goalProcessed;
   },
 
   // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
@@ -430,13 +560,15 @@ const Finance = {
         })
         .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
+      const goalPendente = sumPendingGoalContributions(year, month);
+
       if (totalReceived === 0 && quickNonCredit === 0) {
         const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
         const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-        return inc - exp;
+        return inc - exp - goalPendente;
       }
 
-      return saldo + entradasPendentes - despesasPendentes - faturaPendente;
+      return saldo + entradasPendentes - despesasPendentes - faturaPendente - goalPendente;
     }
 
     if (isNextMonth) {
@@ -444,13 +576,13 @@ const Finance = {
       const txs = this.getByCompetency(year, month);
       const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
       const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-      return prevPrevisao + inc - exp;
+      return prevPrevisao + inc - exp - sumPendingGoalContributions(year, month);
     }
 
     const txs = this.getByCompetency(year, month);
     const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    return inc - exp;
+    return inc - exp - sumPendingGoalContributions(year, month);
   },
 
   getReminders() {
@@ -555,6 +687,17 @@ const Finance = {
       });
     });
 
+    // Aportes programados de metas (Guardar) — reduzem o fluxo previsto,
+    // sem entrar em "Pagar contas" nem nos relatórios de gasto.
+    getGoalsForCompetency().forEach(g => {
+      const occ = getGoalOccurrenceForMonth(g, year, month);
+      if (!occ || occ.processed) return;
+      events.push({
+        date: occ.dueDate, label: `Aporte para ${g.name}`,
+        amount: -occ.amount, type: 'goal',
+      });
+    });
+
     // Ordenar por data; na mesma data, entradas antes das saídas
     events.sort((a, b) => {
       if (a.date !== b.date) return a.date > b.date ? 1 : -1;
@@ -600,46 +743,190 @@ const Finance = {
     };
   },
 
-  // ── GOALS ──────────────────────────────────────────────────────────────────
+  // ── GOALS (Objetivos com Poupança Programada) ───────────────────────────────
   addGoal(data) {
     const goals = Storage.getGoals();
+    const now = new Date().toISOString();
     const g = {
       id: genId(),
-      name: (data.name||'').trim(),
-      emoji: data.emoji||'🎯',
+      name: (data.name || '').trim(),
+      emoji: data.emoji || '🎯',
       target: Number(data.target),
-      saved: Number(data.saved)||0,
-      deadline: data.deadline||'',
-      createdAt: new Date().toISOString(),
+      saved: Number(data.saved) || 0,
+      deadline: data.deadline || '',
+      monthlyContribution: Number(data.monthlyContribution) || 0,
+      contributionDay: Math.min(31, Math.max(1, Number(data.contributionDay) || 10)),
+      priority: data.priority || 'media',
+      status: 'active',
+      startDate: todayStr(),
+      history: [],
+      deleted: false,
+      createdAt: now,
+      updatedAt: now,
     };
     goals.push(g);
     Storage.setGoals(goals);
     return g;
   },
+
   updateGoal(id, data) {
     const goals = Storage.getGoals();
-    const idx   = goals.findIndex(g => g.id===id);
-    if (idx !== -1) {
-      goals[idx] = {
-        ...goals[idx],
-        name: (data.name||'').trim(),
-        emoji: data.emoji||goals[idx].emoji||'🎯',
-        target: Number(data.target),
-        saved: Number(data.saved)||0,
-        deadline: data.deadline||'',
-      };
-      Storage.setGoals(goals);
-    }
+    const idx = goals.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    const old = goalDefaults(goals[idx]);
+    const newMonthly = data.monthlyContribution !== undefined
+      ? (Number(data.monthlyContribution) || 0) : old.monthlyContribution;
+    const newDay = data.contributionDay !== undefined
+      ? Math.min(31, Math.max(1, Number(data.contributionDay) || old.contributionDay)) : old.contributionDay;
+    // Se o aporte mensal estava zerado e passou a existir agora, o cronograma
+    // começa a contar a partir de hoje (não retroage).
+    const startDate = (old.monthlyContribution <= 0 && newMonthly > 0) ? todayStr() : old.startDate;
+
+    goals[idx] = {
+      ...old,
+      name: (data.name || '').trim(),
+      emoji: data.emoji || old.emoji || '🎯',
+      target: Number(data.target),
+      saved: data.saved !== undefined ? (Number(data.saved) || 0) : old.saved,
+      deadline: data.deadline !== undefined ? data.deadline : old.deadline,
+      monthlyContribution: newMonthly,
+      contributionDay: newDay,
+      priority: data.priority || old.priority,
+      startDate,
+      updatedAt: new Date().toISOString(),
+    };
+    // Reavaliar conclusão após a edição (ex.: aumento da meta reabre um objetivo concluído)
+    if (goals[idx].status === 'completed' && goalRemaining(goals[idx]) > 0) goals[idx].status = 'active';
+    if (goalRemaining(goals[idx]) <= 0) goals[idx].status = 'completed';
+    Storage.setGoals(goals);
   },
+
+  // Aporte manual (botão "Guardar Dinheiro") — comportamento original preservado:
+  // não mexe em saldo/previsão, apenas soma ao valor guardado da meta.
   addToGoal(id, amount) {
     const goals = Storage.getGoals();
-    const idx   = goals.findIndex(g => g.id===id);
-    if (idx !== -1) {
-      goals[idx].saved = Math.min(Number(goals[idx].saved)+Number(amount), Number(goals[idx].target));
-      Storage.setGoals(goals);
-    }
+    const idx = goals.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    const g = goalDefaults(goals[idx]);
+    const amt = Math.abs(Number(amount)) || 0;
+    const newSaved = Math.min(g.saved + amt, g.target);
+    const actuallyAdded = newSaved - g.saved;
+    g.saved = newSaved;
+    g.history = [{
+      id: genId(), competency: null, date: todayStr(),
+      amount: actuallyAdded, origin: 'manual', accumulated: newSaved,
+    }, ...g.history];
+    if (g.saved >= g.target) g.status = 'completed';
+    g.updatedAt = new Date().toISOString();
+    goals[idx] = g;
+    Storage.setGoals(goals);
   },
-  deleteGoal(id) { Storage.setGoals(Storage.getGoals().filter(g => g.id!==id)); },
+
+  // Processa o aporte programado (mensal) de uma competência — chamado pelo
+  // modal Receber/Pagar › Guardar. Reduz saldo/previsão (via sumProcessed/
+  // sumPending acima), aumenta o valor guardado e registra no histórico.
+  // Idempotente: uma mesma competência nunca é processada duas vezes.
+  processGoalContribution(goalId, competency) {
+    const goals = Storage.getGoals();
+    const idx = goals.findIndex(g => g.id === goalId);
+    if (idx === -1) return;
+    const g = goalDefaults(goals[idx]);
+    if (g.history.some(h => h.origin === 'scheduled' && h.competency === competency)) return;
+
+    const remaining = goalRemaining(g);
+    if (remaining <= 0) { g.status = 'completed'; goals[idx] = g; Storage.setGoals(goals); return; }
+
+    const [cy, cm] = competency.split('-').map(Number);
+    const dueDate = buildDate(cy, cm - 1, g.contributionDay);
+    const amount = Math.min(g.monthlyContribution, remaining);
+    const newSaved = g.saved + amount;
+
+    g.saved = newSaved;
+    g.history = [{
+      id: `${goalId}::${competency}`, competency, date: dueDate,
+      amount, origin: 'scheduled', accumulated: newSaved,
+    }, ...g.history];
+    if (newSaved >= g.target) g.status = 'completed';
+    g.updatedAt = new Date().toISOString();
+    goals[idx] = g;
+    Storage.setGoals(goals);
+  },
+
+  pauseGoal(id) {
+    const goals = Storage.getGoals();
+    const idx = goals.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    goals[idx].status = 'paused';
+    goals[idx].updatedAt = new Date().toISOString();
+    Storage.setGoals(goals);
+  },
+
+  resumeGoal(id) {
+    const goals = Storage.getGoals();
+    const idx = goals.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    const g = goalDefaults(goals[idx]);
+    g.status = 'active';
+    // Reinicia no próximo mês válido (não gera compromissos retroativos)
+    const today = new Date();
+    let ny = today.getFullYear(), nm = today.getMonth() + 1;
+    if (nm > 11) { nm = 0; ny++; }
+    g.startDate = buildDate(ny, nm, 1);
+    g.updatedAt = new Date().toISOString();
+    goals[idx] = g;
+    Storage.setGoals(goals);
+  },
+
+  // Exclusão lógica: preserva o histórico de aportes já processados (para
+  // não alterar retroativamente saldo/previsão de meses fechados) e cancela
+  // compromissos futuros, removendo a meta apenas das listagens ativas.
+  deleteGoal(id) {
+    const goals = Storage.getGoals();
+    const idx = goals.findIndex(g => g.id === id);
+    if (idx === -1) return;
+    goals[idx].deleted = true;
+    goals[idx].status = 'deleted';
+    goals[idx].updatedAt = new Date().toISOString();
+    Storage.setGoals(goals);
+  },
+
+  getGoalById(id) {
+    const g = Storage.getGoals().find(g => g.id === id);
+    return g ? goalDefaults(g) : null;
+  },
+
+  // Metas ativas (não excluídas), normalizadas e ordenadas por prioridade
+  // (Alta > Média > Baixa) e, dentro da mesma prioridade, mais recente primeiro.
+  getActiveGoals() {
+    const order = { alta: 0, media: 1, baixa: 2 };
+    return getGoalsForCompetency().sort((a, b) => {
+      const pa = order[a.priority] ?? 1, pb = order[b.priority] ?? 1;
+      if (pa !== pb) return pa - pb;
+      return (b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1;
+    });
+  },
+
+  goalRemaining,
+  goalMonthsNeeded,
+  goalEstimatedCompletion,
+  getGoalOccurrenceForMonth,
+  getGoalUpcomingOccurrences(goal, maxCount) { return projectGoalOccurrences(goal, maxCount); },
+
+  // Total guardado (manual + programado) no mês informado — usado apenas na
+  // seção informativa "Valores guardados" dos relatórios, nunca somado ao
+  // total de gastos.
+  getGoalSavedTotalForMonth(year, month) {
+    const key = goalCompetencyKey(year, month);
+    return getGoalsForCompetency().reduce((s, g) => {
+      const monthTotal = g.history.filter(h => {
+        if (h.origin === 'scheduled') return h.competency === key;
+        if (!h.date) return false;
+        const d = parseLocalDate(h.date);
+        return d.getFullYear() === year && d.getMonth() === month;
+      }).reduce((s2, h) => s2 + h.amount, 0);
+      return s + monthTotal;
+    }, 0);
+  },
 };
 
 // ─── HELPER: buscar card pelo id (acessa Storage) ────────────────────────────
