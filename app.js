@@ -1456,24 +1456,46 @@ function _renderRptCatList(d) {
 let _processSelectedTxIds = new Set();
 let _processSelectedInvoices = new Set();
 
+// Navegação de mês independente da Visão Geral. Sempre reinicia no mês
+// vigente toda vez que o modal é aberto (não é persistida ao fechar).
+let _processYear  = null;
+let _processMonth = null;
+
+function processChangeMonth(delta) {
+  _processMonth += delta;
+  if (_processMonth > 11) { _processMonth = 0; _processYear++; }
+  if (_processMonth < 0)  { _processMonth = 11; _processYear--; }
+  renderProcessList();
+}
+
 function openProcessPayments() {
   const today = new Date();
-  const y = today.getFullYear(), m = today.getMonth();
+  _processYear  = today.getFullYear();
+  _processMonth = today.getMonth();
+  renderProcessList();
+  openModal('process-modal');
+}
 
-  // Receitas pendentes do mês atual (listagem individual)
+function renderProcessList() {
+  const y = _processYear, m = _processMonth;
+
+  const labelEl = document.getElementById('process-month-label');
+  if (labelEl) labelEl.textContent = `${MONTHS_PT[m]}/${y}`;
+
+  // Receitas pendentes do mês em navegação (listagem individual)
   const pendingIncome = Finance.getByCompetency(y, m, 'income')
     .filter(t => !t.paid)
     .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1);
 
   // Despesas não-crédito pendentes (listagem individual)
-  const pendingExpenses = Finance.getPendingForProcessing(State.year, State.month)
+  const pendingExpenses = Finance.getPendingForProcessing(y, m)
     .filter(t => t.paymentMethod !== 'credito');
 
   // Faturas de cartão — uma linha por cartão
   const allCards = Storage.getCards();
   const cardsToCheck = allCards.length > 0 ? allCards : [DEFAULT_CARD];
   const cardInvoices = cardsToCheck
-    .map(card => ({ card, invoice: Finance.getCardInvoice(State.year, State.month, card) }))
+    .map(card => ({ card, invoice: Finance.getCardInvoice(y, m, card) }))
     .filter(({ invoice }) => invoice.total > 0 && !invoice.allPaid);
 
   _processSelectedTxIds = new Set();
@@ -1483,7 +1505,7 @@ function openProcessPayments() {
   const hasAny = pendingIncome.length > 0 || pendingExpenses.length > 0 || cardInvoices.length > 0;
 
   if (!hasAny) {
-    listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[State.month]}/${State.year} 🎉</div>`;
+    listEl.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted-fg)">Nenhuma pendência em ${MONTHS_PT[m]}/${y} 🎉</div>`;
     document.getElementById('process-confirm-btn').style.display = 'none';
   } else {
     document.getElementById('process-confirm-btn').style.display = '';
@@ -1507,7 +1529,7 @@ function openProcessPayments() {
 
     // Linha de fatura de cartão (agrupada)
     const renderInvoiceRow = (card, invoice) => {
-      const invoiceKey = `${card.id}::${State.year}::${State.month}`;
+      const invoiceKey = `${card.id}::${y}::${m}`;
       const count = invoice.transactions.length;
       return `<label style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 0.75rem;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:0.5rem;cursor:pointer;background:transparent">
         <input type="checkbox" style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0" onchange="toggleProcessItem('invoice','${invoiceKey}',this.checked)" />
@@ -1538,7 +1560,6 @@ function openProcessPayments() {
 
     listEl.innerHTML = html;
   }
-  openModal('process-modal');
 }
 
 function toggleProcessItem(kind, id, checked) {
