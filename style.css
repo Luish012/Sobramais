@@ -247,14 +247,41 @@ a { color: inherit; text-decoration: none; }
 }
 .btn-back:hover { color: var(--fg); }
 .dash-title { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.02em; }
-.dash-header-actions { display: flex; gap: 0.5rem; }
+.dash-header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .dash-header-btn {
   font-size: 0.8rem; color: var(--muted-fg);
   padding: 0.35rem 0.7rem; border-radius: var(--r-full);
   border: 1px solid var(--border); background: transparent;
+  white-space: nowrap; flex-shrink: 0;
   transition: all var(--ease);
 }
 .dash-header-btn:hover { color: var(--fg); background: var(--muted); }
+
+/* Mobile: "Importar"/"Backup" saem da linha principal e vão para o menu "Mais",
+   evitando que o cabeçalho fique mais largo que a tela (causa do overflow
+   horizontal no Painel Financeiro). Desktop permanece exatamente igual. */
+.dash-header-btn-mobile-only { display: none; }
+.dash-more-wrap { position: relative; flex-shrink: 0; }
+.dash-more-menu {
+  display: none; position: absolute; top: calc(100% + 0.4rem); right: 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow-md); min-width: 180px; z-index: 200; overflow: hidden;
+}
+.dash-more-menu.open { display: block; }
+.dash-more-menu-item {
+  display: block; width: 100%; text-align: left; padding: 0.65rem 0.9rem;
+  font-size: 0.85rem; color: var(--fg); background: none; border: none;
+}
+.dash-more-menu-item:hover { background: var(--muted); }
+
+@media (max-width: 640px) {
+  .dash-header-btn-desktop-only { display: none; }
+  .dash-header-btn-mobile-only  { display: inline-flex; align-items: center; justify-content: center; }
+  .dash-title { font-size: 1.05rem; }
+  .dash-header { padding: 1.6rem 1rem 0.85rem; }
+  .dash-header-actions { gap: 0.35rem; }
+  .dash-header-btn { padding: 0.35rem 0.55rem; }
+}
 
 /* Month bar */
 .month-bar {
