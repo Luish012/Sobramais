@@ -60,6 +60,97 @@ const State = {
   editCardId: null,
 };
 
+// ─── RESTAURAÇÃO DE SESSÃO (última tela, por até 5 minutos) ───────────────────
+// Guarda onde o usuário estava (view/aba/mês/ano/rolagem) para retomar caso ele
+// volte em pouco tempo (ex: recebeu uma ligação). Depois desse período, o app
+// abre normalmente na tela inicial. Nunca restaura modais.
+const UI_STATE_TIMEOUT = 5 * 60 * 1000;
+const UI_STATE_RESTORABLE_VIEWS = ['home', 'dashboard'];
+
+const UiState = {
+  _debounceTimer: null,
+
+  _key(userId) {
+    return `sobramais_ui_state_${userId}`;
+  },
+
+  _scrollEl() {
+    return document.querySelector('.dashboard-scroll');
+  },
+
+  save() {
+    const userId = Auth.currentUser?.id;
+    if (!userId) return;
+    if (!UI_STATE_RESTORABLE_VIEWS.includes(State.view)) return;
+    const scrollEl = this._scrollEl();
+    const snapshot = {
+      view: State.view,
+      tab: State.tab,
+      month: State.month,
+      year: State.year,
+      scrollY: scrollEl ? scrollEl.scrollTop : 0,
+      updatedAt: Date.now(),
+    };
+    try { sessionStorage.setItem(this._key(userId), JSON.stringify(snapshot)); } catch (e) { /* ignore */ }
+  },
+
+  scheduleSave() {
+    clearTimeout(this._debounceTimer);
+    this._debounceTimer = setTimeout(() => this.save(), 350);
+  },
+
+  load(userId) {
+    if (!userId) return null;
+    let snapshot;
+    try {
+      const raw = sessionStorage.getItem(this._key(userId));
+      if (!raw) return null;
+      snapshot = JSON.parse(raw);
+    } catch (e) { return null; }
+
+    if (!snapshot || typeof snapshot.updatedAt !== 'number') { this.clear(userId); return null; }
+    if (Date.now() - snapshot.updatedAt > UI_STATE_TIMEOUT)  { this.clear(userId); return null; }
+    if (!UI_STATE_RESTORABLE_VIEWS.includes(snapshot.view))  { this.clear(userId); return null; }
+    return snapshot;
+  },
+
+  clear(userId) {
+    if (!userId) return;
+    try { sessionStorage.removeItem(this._key(userId)); } catch (e) { /* ignore */ }
+  },
+
+  // Usado no logout / troca de usuário: remove qualquer estado salvo, de
+  // qualquer conta, desta aba do navegador.
+  clearAll() {
+    try {
+      Object.keys(sessionStorage)
+        .filter(k => k.startsWith('sobramais_ui_state_'))
+        .forEach(k => sessionStorage.removeItem(k));
+    } catch (e) { /* ignore */ }
+  },
+};
+
+// Chamado após login bem-sucedido (assinatura ativa/trial válido). Restaura a
+// última tela apenas se o usuário voltou em até UI_STATE_TIMEOUT; caso
+// contrário, abre normalmente na tela inicial.
+function restoreSessionOrHome(userId) {
+  const saved = UiState.load(userId);
+  if (!saved) { showView('home'); return; }
+
+  State.month = saved.month;
+  State.year  = saved.year;
+  State.tab   = saved.tab || 'overview';
+  showView(saved.view);
+
+  // Restaura a rolagem somente depois que o DOM terminar de renderizar.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const scrollEl = document.querySelector('.dashboard-scroll');
+      if (scrollEl) scrollEl.scrollTop = saved.scrollY || 0;
+    });
+  });
+}
+
 // ─── VIEW MANAGEMENT ─────────────────────────────────────────────────────────
 function showView(v) {
   State.view = v;
@@ -85,6 +176,7 @@ function showView(v) {
     renderHomeBalance();
     renderHomeAlerts();
   }
+  UiState.scheduleSave();
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
@@ -93,6 +185,7 @@ function showTab(t) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.tab === t));
   refreshTab(t);
+  UiState.scheduleSave();
 }
 
 function refreshAll() {
@@ -115,10 +208,12 @@ function updateMonthLabel() {
 function prevMonth() {
   if (State.month === 0) { State.month = 11; State.year--; } else State.month--;
   refreshAll();
+  UiState.scheduleSave();
 }
 function nextMonth() {
   if (State.month === 11) { State.month = 0; State.year++; } else State.month++;
   refreshAll();
+  UiState.scheduleSave();
 }
 
 // ─── HOME GREETING ───────────────────────────────────────────────────────────
@@ -2283,6 +2378,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Signup CPF mask ────────────────────────────────────────────────────────
   const signupCpf = document.getElementById('signup-cpf');
   if (signupCpf) signupCpf.addEventListener('input', () => Subscription.maskCpf(signupCpf));
+
+  // ── Restauração de sessão: salva a rolagem do painel (com debounce) ────────
+  document.querySelector('.dashboard-scroll')?.addEventListener('scroll', () => UiState.scheduleSave(), { passive: true });
+
+  // ── Menu "Mais" (mobile) ────────────────────────────────────────────────────
+  document.getElementById('btn-dash-more')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('dash-more-menu')?.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('dash-more-menu');
+    if (menu && menu.classList.contains('open') && !menu.contains(e.target) && e.target.id !== 'btn-dash-more') {
+      menu.classList.remove('open');
+    }
+  });
+  document.getElementById('btn-import-mobile')?.addEventListener('click', () => {
+    document.getElementById('dash-more-menu')?.classList.remove('open');
+    importBackup();
+  });
+  document.getElementById('btn-export-mobile')?.addEventListener('click', () => {
+    document.getElementById('dash-more-menu')?.classList.remove('open');
+    exportBackup();
+  });
 
   // ── Init Auth ──────────────────────────────────────────────────────────────
   Auth.init();
