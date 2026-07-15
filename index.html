@@ -301,8 +301,16 @@
         <button class="notif-bell-btn notif-bell-btn-header" type="button" title="Notificações" onclick="Notifications.openPanel()">
           🔔<span class="notif-bell-badge" style="display:none">0</span>
         </button>
-        <button id="btn-import" class="dash-header-btn" title="Importar backup">↑ Importar</button>
-        <button id="btn-export" class="dash-header-btn" title="Exportar backup">↓ Backup</button>
+        <!-- Desktop: todos os botões visíveis. Mobile: Importar/Backup ficam no menu "Mais". -->
+        <button id="btn-import" class="dash-header-btn dash-header-btn-desktop-only" title="Importar backup">↑ Importar</button>
+        <button id="btn-export" class="dash-header-btn dash-header-btn-desktop-only" title="Exportar backup">↓ Backup</button>
+        <div class="dash-more-wrap">
+          <button id="btn-dash-more" class="dash-header-btn dash-header-btn-mobile-only" title="Mais opções" type="button">⋯</button>
+          <div id="dash-more-menu" class="dash-more-menu">
+            <button id="btn-import-mobile" class="dash-more-menu-item" type="button">↑ Importar backup</button>
+            <button id="btn-export-mobile" class="dash-more-menu-item" type="button">↓ Exportar backup</button>
+          </div>
+        </div>
         <button id="btn-account" class="dash-header-btn" title="Minha conta">👤 Conta</button>
       </div>
     </div>
