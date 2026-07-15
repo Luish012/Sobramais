@@ -8,7 +8,7 @@
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
   {
-    version: '1.3.0',
+    version: '1.2.0',
     date: '2026-07-15',
     title: 'Categorias Inteligentes',
     changes: [
