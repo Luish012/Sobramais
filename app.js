@@ -450,13 +450,20 @@ function renderQuickList() {
     <div class="quick-row">
       <div class="quick-info">
         <div class="quick-desc">${esc(q.description)}</div>
-        <div class="quick-meta">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)}</div>
+        <div class="quick-meta">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)} · ${categoryBadge(q.categoryId, q.category, q.id)}</div>
       </div>
       <div class="quick-right">
         <span class="quick-amount">${fmtCurrency(q.amount)}</span>
         <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
       </div>
     </div>`).join('');
+}
+
+// Selo de categoria clicável, usado nas listas de gasto rápido.
+function categoryBadge(categoryId, categoryName, quickId) {
+  const cat = Categories.getById(categoryId) || Categories.getByName(categoryName);
+  const label = cat ? `${cat.icon} ${esc(cat.name)}` : (categoryName ? esc(categoryName) : 'Sem categoria');
+  return `<span class="cat-badge" onclick="openQuickCategoryChange('${quickId}')">${label}</span>`;
 }
 
 // ─── EXPENSES TAB ────────────────────────────────────────────────────────────
@@ -468,7 +475,7 @@ function quickExpenseRow(q) {
       <div class="tx-amount paid">${fmtCurrency(Number(q.amount))}</div>
     </div>
     <div class="tx-date-line">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)}</div>
-    <div class="tx-badges"><span class="tag">Avulso</span></div>
+    <div class="tx-badges"><span class="tag">Avulso</span>${categoryBadge(q.categoryId, q.category, q.id)}</div>
     <div class="tx-actions">
       <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
     </div>
@@ -953,7 +960,7 @@ function openEditTx(id) {
   document.getElementById('tx-desc').value     = tx.description;
   document.getElementById('tx-amount').value   = tx.amount;
   document.getElementById('tx-duedate').value  = (tx.paymentMethod === 'credito' && tx.purchaseDate) ? tx.purchaseDate : tx.dueDate;
-  document.getElementById('tx-category').value = tx.category;
+  _preselectTxCategory(tx);
   document.getElementById('tx-payment').value  = tx.paymentMethod;
   document.getElementById('tx-subtype').value  = tx.subtype;
   document.getElementById('tx-installments').value = tx.installmentTotal || 1;
@@ -974,8 +981,40 @@ function resetTxForm() {
 }
 
 function populateCategoryOptions(type) {
-  const cats = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  document.getElementById('tx-category').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  const sel = document.getElementById('tx-category');
+  if (type === 'income') {
+    sel.innerHTML = INCOME_CATEGORIES.map(c => `<option value="${c}" data-name="${c}">${c}</option>`).join('');
+    return;
+  }
+  // Despesas usam as categorias personalizadas do usuário (Categorias Inteligentes)
+  const cats = Categories.active();
+  sel.innerHTML = cats.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join('');
+}
+
+// Pré-seleciona a categoria de uma transação existente no <select>. Aceita
+// tanto o novo vínculo (categoryId) quanto lançamentos antigos que só têm o
+// texto da categoria — nesse caso tenta casar pelo nome; se não encontrar,
+// injeta uma opção temporária para não perder o histórico.
+function _preselectTxCategory(tx) {
+  const sel = document.getElementById('tx-category');
+  if (!sel) return;
+  if (tx.type === 'income') { sel.value = tx.category; return; }
+  let optionValue = tx.categoryId && [...sel.options].some(o => o.value === tx.categoryId)
+    ? tx.categoryId
+    : null;
+  if (!optionValue && tx.category) {
+    const match = Categories.getByName(tx.category);
+    if (match && [...sel.options].some(o => o.value === match.id)) optionValue = match.id;
+  }
+  if (!optionValue && tx.category) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.dataset.name = tx.category;
+    opt.textContent = `${tx.category} (categoria antiga)`;
+    sel.prepend(opt);
+    optionValue = '';
+  }
+  sel.value = optionValue || '';
 }
 
 function updateSubtypeSection() {
@@ -1037,7 +1076,10 @@ function saveTxForm() {
   const desc      = document.getElementById('tx-desc').value.trim();
   const amount    = parseFloat(document.getElementById('tx-amount').value);
   const dueDate   = document.getElementById('tx-duedate').value;
-  const cat       = document.getElementById('tx-category').value;
+  const catSel    = document.getElementById('tx-category');
+  const catOpt    = catSel.selectedOptions[0];
+  const catId     = _txType === 'expense' ? (catSel.value || null) : null;
+  const catName   = _txType === 'income' ? catSel.value : (catOpt?.dataset.name || '');
   const payment   = document.getElementById('tx-payment').value;
   const subtype   = document.getElementById('tx-subtype').value;
   const instTotal = parseInt(document.getElementById('tx-installments').value) || 1;
@@ -1053,10 +1095,19 @@ function saveTxForm() {
   const base = {
     type: _txType, subtype, description: desc, amount,
     purchaseDate: payment === 'credito' ? dueDate : undefined,
-    dueDate, category: cat, paymentMethod: payment,
+    dueDate, category: catName, categoryId: catId, paymentMethod: payment,
     cardId: payment === 'credito' ? selectedCard.id : null,
     installmentTotal: instTotal, paid,
   };
+
+  // Se o usuário trocou manualmente a categoria de uma despesa já existente,
+  // pergunta se deve ensinar o sistema para as próximas vezes (item 7 do roadmap).
+  if (State.editTxId && _txType === 'expense' && catId) {
+    const oldTx = Storage.getTransactions().find(t => t.id === State.editTxId);
+    if (oldTx && oldTx.categoryId !== catId) {
+      _maybeAskToLearn(desc, catId);
+    }
+  }
 
   if (State.editTxId) {
     Finance.updateTransaction(State.editTxId, base);
@@ -1087,6 +1138,16 @@ function saveTxForm() {
   }
   closeModal('tx-modal');
   refreshAll();
+}
+
+// ─── APRENDIZADO DE CATEGORIA ─────────────────────────────────────────────────
+// Pergunta se deve gravar a associação descrição → categoria para as próximas
+// vezes (itens 6 e 7 do roadmap de Categorias Inteligentes).
+function _maybeAskToLearn(description, categoryId) {
+  confirmDialog('Deseja que este tipo de lançamento seja classificado assim nas próximas vezes?', () => {
+    CatIntel.learn(description, categoryId);
+    showToast('Categorização salva para a próxima vez', 'success');
+  });
 }
 
 // ─── GASTO RÁPIDO ─────────────────────────────────────────────────────────────
@@ -1244,21 +1305,204 @@ function saveQuickForm() {
   const val    = document.getElementById('quick-input').value.trim();
   const parsed = parseQuickInput(val);
   if (!parsed) { showToast('Formato inválido. Ex: Mercado 120 débito', 'error'); return; }
+
+  // Categorias Inteligentes: tenta classificar automaticamente (aprendizado do
+  // usuário > palavras-chave). Se não conseguir, pergunta antes de salvar.
+  const guessed = CatIntel.classify(parsed.description);
+  if (guessed) {
+    _finishQuickSave(parsed, guessed.id, guessed.name);
+  } else {
+    _openQuickCategoryPicker(cat => {
+      _finishQuickSave(parsed, cat.id, cat.name);
+      CatIntel.learn(parsed.description, cat.id);
+    });
+  }
+}
+
+function _finishQuickSave(parsed, categoryId, categoryName) {
   if (parsed.paymentMethod === 'credito') {
     // Usar o cartão escolhido no seletor do próprio modal de Gasto Rápido
     const card         = _getQuickCard();
     const purchaseDate = todayIso();
     Finance.addTransaction({
       type:'expense', subtype:'once', description:parsed.description, amount:parsed.amount,
-      purchaseDate, dueDate:purchaseDate, category:'Outros',
+      purchaseDate, dueDate:purchaseDate, category: categoryName || 'Outros', categoryId: categoryId || null,
       paymentMethod:'credito', cardId: card.id, paid:false,
     });
   } else {
-    Finance.addQuickExpense(parsed.description, parsed.amount, parsed.paymentMethod);
+    Finance.addQuickExpense(parsed.description, parsed.amount, parsed.paymentMethod, categoryName || 'Outros', categoryId || null);
   }
   showToast('Gasto lançado!', 'success');
   closeModal('quick-modal');
   if (State.view === 'dashboard') refreshAll();
+}
+
+// ─── SELETOR DE CATEGORIA (gasto rápido sem correspondência) ──────────────────
+let _quickCatCb = null;
+function _openQuickCategoryPicker(onChoose) {
+  _quickCatCb = onChoose;
+  const list = Categories.active();
+  const el = document.getElementById('quick-cat-list');
+  el.innerHTML = list.map(c => `
+    <button type="button" class="cat-chip" style="border-color:${esc(c.color)}" onclick="_chooseQuickCategory('${c.id}')">
+      <span class="cat-chip-icon">${esc(c.icon)}</span><span>${esc(c.name)}</span>
+    </button>`).join('');
+  openModal('quick-cat-modal');
+}
+function _chooseQuickCategory(id) {
+  const cat = Categories.getById(id);
+  closeModal('quick-cat-modal');
+  if (cat && _quickCatCb) _quickCatCb(cat);
+  _quickCatCb = null;
+}
+
+// Permite reclassificar um gasto rápido já lançado (toque no selo de categoria).
+function openQuickCategoryChange(id) {
+  const item = Storage.getQuickExpenses().find(q => q.id === id);
+  if (!item) return;
+  _openQuickCategoryPicker(cat => {
+    Finance.updateQuickExpenseCategory(id, cat.name, cat.id);
+    _maybeAskToLearn(item.description, cat.id);
+    showToast('Categoria atualizada', 'success');
+    refreshAll();
+  });
+}
+
+// ─── CATEGORIAS (tela de gerenciamento) ────────────────────────────────────────
+const CATEGORY_ICON_CHOICES = ['🍔','🛒','⛽','🏠','💊','🎮','👕','🧾','🚗','🐶','🎓','💼','🎁','💳','💰','📦','✈️','🎵','🧴','🔧','📱','🍺','☕','🧹'];
+const CATEGORY_COLOR_CHOICES = ['#f97316','#22c55e','#eab308','#0ea5e9','#ef4444','#a855f7','#ec4899','#64748b','#3b82f6','#84cc16','#6366f1','#0f766e','#f43f5e','#7c3aed','#059669','#78716c'];
+
+let _editCategoryId = null;
+
+function openCategoriesScreen() {
+  closeModal('account-modal');
+  renderCategoriesList();
+  openModal('categories-modal');
+}
+
+function renderCategoriesList() {
+  const list = Categories.list();
+  const el = document.getElementById('categories-list');
+  if (!el) return;
+  if (list.length === 0) {
+    el.innerHTML = emptyState('🏷️', 'Nenhuma categoria', 'Toque em "Nova Categoria" para criar a primeira.');
+    return;
+  }
+  el.innerHTML = list.map((c, i) => `
+    <div class="cat-row${c.active === false ? ' cat-row-inactive' : ''}">
+      <div class="cat-row-order">
+        <button class="btn-icon" type="button" onclick="Categories.move('${c.id}',-1);renderCategoriesList()" ${i === 0 ? 'disabled' : ''}>▲</button>
+        <button class="btn-icon" type="button" onclick="Categories.move('${c.id}',1);renderCategoriesList()" ${i === list.length - 1 ? 'disabled' : ''}>▼</button>
+      </div>
+      <div class="cat-row-swatch" style="background:${esc(c.color)}">${esc(c.icon)}</div>
+      <div class="cat-row-info" onclick="openCategoryEdit('${c.id}')">
+        <div class="cat-row-name">${esc(c.name)}</div>
+        <div class="cat-row-meta">${c.keywords.length} palavra(s)-chave${c.active === false ? ' · oculta' : ''}</div>
+      </div>
+      <button class="btn-icon" type="button" title="Editar" onclick="openCategoryEdit('${c.id}')">✏</button>
+    </div>`).join('');
+}
+
+function openNewCategory() {
+  _editCategoryId = null;
+  document.getElementById('category-modal-title').textContent = 'Nova Categoria';
+  document.getElementById('category-name').value = '';
+  document.getElementById('category-icon-input').value = '📦';
+  document.getElementById('category-color-input').value = '#78716c';
+  document.getElementById('category-active').checked = true;
+  _renderCategoryIconGrid('📦');
+  _renderCategoryColorGrid('#78716c');
+  _renderCategoryKeywords([]);
+  document.getElementById('btn-delete-category').style.display = 'none';
+  openModal('category-edit-modal');
+}
+
+function openCategoryEdit(id) {
+  const cat = Categories.getById(id);
+  if (!cat) return;
+  _editCategoryId = id;
+  document.getElementById('category-modal-title').textContent = 'Editar Categoria';
+  document.getElementById('category-name').value = cat.name;
+  document.getElementById('category-icon-input').value = cat.icon;
+  document.getElementById('category-color-input').value = cat.color;
+  document.getElementById('category-active').checked = cat.active !== false;
+  _renderCategoryIconGrid(cat.icon);
+  _renderCategoryColorGrid(cat.color);
+  _renderCategoryKeywords(cat.keywords);
+  document.getElementById('btn-delete-category').style.display = '';
+  openModal('category-edit-modal');
+}
+
+function _renderCategoryIconGrid(selected) {
+  const el = document.getElementById('category-icon-grid');
+  el.innerHTML = CATEGORY_ICON_CHOICES.map(ic => `
+    <button type="button" class="cat-icon-opt${ic === selected ? ' selected' : ''}" onclick="_pickCategoryIcon('${ic}')">${ic}</button>`).join('');
+}
+function _pickCategoryIcon(ic) {
+  document.getElementById('category-icon-input').value = ic;
+  _renderCategoryIconGrid(ic);
+}
+
+function _renderCategoryColorGrid(selected) {
+  const el = document.getElementById('category-color-grid');
+  el.innerHTML = CATEGORY_COLOR_CHOICES.map(col => `
+    <button type="button" class="cat-color-opt${col === selected ? ' selected' : ''}" style="background:${col}" onclick="_pickCategoryColor('${col}')"></button>`).join('');
+}
+function _pickCategoryColor(col) {
+  document.getElementById('category-color-input').value = col;
+  _renderCategoryColorGrid(col);
+}
+
+let _categoryKeywordsDraft = [];
+function _renderCategoryKeywords(keywords) {
+  _categoryKeywordsDraft = [...keywords];
+  const el = document.getElementById('category-keywords-list');
+  el.innerHTML = _categoryKeywordsDraft.map((k, i) => `
+    <span class="cat-keyword-chip">${esc(k)}<button type="button" onclick="_removeCategoryKeywordDraft(${i})">✕</button></span>`).join('')
+    || '<span style="font-size:0.8rem;color:var(--muted-fg)">Nenhuma palavra-chave ainda.</span>';
+}
+function _removeCategoryKeywordDraft(i) {
+  _categoryKeywordsDraft.splice(i, 1);
+  _renderCategoryKeywords(_categoryKeywordsDraft);
+}
+function addCategoryKeywordDraft() {
+  const inp = document.getElementById('category-keyword-input');
+  const val = inp.value.trim();
+  if (!val) return;
+  if (!_categoryKeywordsDraft.some(k => k.toLowerCase() === val.toLowerCase())) {
+    _categoryKeywordsDraft.push(val);
+    _renderCategoryKeywords(_categoryKeywordsDraft);
+  }
+  inp.value = '';
+  inp.focus();
+}
+
+function saveCategoryForm() {
+  const name   = document.getElementById('category-name').value.trim();
+  const icon   = document.getElementById('category-icon-input').value.trim() || '📦';
+  const color  = document.getElementById('category-color-input').value.trim() || '#78716c';
+  const active = document.getElementById('category-active').checked;
+  if (!name) { showToast('Informe o nome da categoria', 'error'); return; }
+
+  if (_editCategoryId) {
+    Categories.update(_editCategoryId, { name, icon, color, active, keywords: _categoryKeywordsDraft });
+    showToast('Categoria atualizada', 'success');
+  } else {
+    Categories.create({ name, icon, color, keywords: _categoryKeywordsDraft });
+    showToast('Categoria criada', 'success');
+  }
+  closeModal('category-edit-modal');
+  renderCategoriesList();
+}
+
+function deleteCategoryForm() {
+  if (!_editCategoryId) return;
+  confirmDialog('Excluir esta categoria? Lançamentos antigos continuarão existindo, apenas ficarão sem categoria.', () => {
+    Categories.remove(_editCategoryId);
+    closeModal('category-edit-modal');
+    renderCategoriesList();
+    showToast('Categoria excluída', 'success');
+  });
 }
 
 // ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
@@ -1409,7 +1653,7 @@ function _renderRptChart(d) {
 
   const labels = d.categories.map(c => c.name);
   const values = d.categories.map(c => c.total);
-  const colors = d.categories.map((_, i) => RPT_COLORS[i % RPT_COLORS.length]);
+  const colors = d.categories.map((c, i) => (Categories.getByName(c.name)?.color) || RPT_COLORS[i % RPT_COLORS.length]);
   const cardBg = getComputedStyle(document.documentElement).getPropertyValue('--card').trim() || '#fff';
   const fgCol  = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()   || '#1a1a1a';
   const muCol  = getComputedStyle(document.documentElement).getPropertyValue('--muted-fg').trim() || '#888';
@@ -2024,6 +2268,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('ticket-chat-send-btn')?.addEventListener('click', () => Support.sendTicketMessage());
   document.getElementById('ticket-chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') Support.sendTicketMessage(); });
   document.getElementById('ticket-close-btn')?.addEventListener('click', () => Support.closeTicket());
+
+  // ── Categorias Inteligentes ────────────────────────────────────────────────
+  document.getElementById('btn-open-categories')?.addEventListener('click', openCategoriesScreen);
+  document.getElementById('close-categories-modal')?.addEventListener('click', () => closeModal('categories-modal'));
+  document.getElementById('btn-add-category')?.addEventListener('click', openNewCategory);
+  document.getElementById('close-category-edit-modal')?.addEventListener('click', () => closeModal('category-edit-modal'));
+  document.getElementById('category-save-btn')?.addEventListener('click', saveCategoryForm);
+  document.getElementById('btn-delete-category')?.addEventListener('click', deleteCategoryForm);
+  document.getElementById('btn-add-category-keyword')?.addEventListener('click', addCategoryKeywordDraft);
+  document.getElementById('category-keyword-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCategoryKeywordDraft(); } });
+  document.getElementById('close-quick-cat-modal')?.addEventListener('click', () => closeModal('quick-cat-modal'));
 
   // ── Signup CPF mask ────────────────────────────────────────────────────────
   const signupCpf = document.getElementById('signup-cpf');
