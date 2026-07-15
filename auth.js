@@ -21,6 +21,7 @@ const Auth = {
         Auth.currentUser = null;
         Auth.currentSubscription = null;
         Storage.clearUserCache();
+        UiState.clearAll();
         showAuthView('login');
         return;
       }
@@ -68,8 +69,10 @@ const Auth = {
       const isTrialActive = sub?.status === 'trial' && sub?.end_date >= today;
 
       if (sub && (sub.status === 'active' || sub.status === 'past_due' || isTrialActive)) {
-        showView('home');
+        restoreSessionOrHome(user.id);
       } else {
+        // Assinatura inativa / trial encerrado: nunca restaurar a última tela.
+        UiState.clear(user.id);
         Subscription.renderView(sub);
         showAuthView('subscription');
       }
@@ -225,6 +228,7 @@ const Auth = {
     clearInterval(Subscription._pollTimer);
     Subscription._pollTimer = null;
     Storage.clearUserCache();
+    UiState.clearAll();
     Auth.currentUser = null;
     Auth.currentSubscription = null;
     await db.auth.signOut();
