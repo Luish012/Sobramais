@@ -47,6 +47,20 @@ const Storage = {
     this._syncCollection('cards', prev, d, this._cardToRow.bind(this)).catch(e => console.warn('[sync-cards]', e));
   },
 
+  getCategories()  { return this._get('CATEGORIES', []); },
+  setCategories(d) {
+    const prev = this.getCategories();
+    this._set('CATEGORIES', d);
+    this._syncCollection('categories', prev, d, this._categoryToRow.bind(this)).catch(e => console.warn('[sync-categories]', e));
+  },
+
+  getCategoryLearning()  { return this._get('CAT_LEARNING', []); },
+  setCategoryLearning(d) {
+    const prev = this.getCategoryLearning();
+    this._set('CAT_LEARNING', d);
+    this._syncCollection('category_learning', prev, d, this._categoryLearningToRow.bind(this)).catch(e => console.warn('[sync-cat-learning]', e));
+  },
+
   // ── Conversores local → banco ───────────────────────────────────────────────
   _txToRow(t) {
     return {
@@ -71,7 +85,27 @@ const Storage = {
       id: q.id, user_id: this.userId,
       description: q.description, amount: q.amount,
       payment_method: q.paymentMethod, date: q.date,
+      category: q.category || null, category_id: q.categoryId || null,
       created_at: q.createdAt || new Date().toISOString(),
+    };
+  },
+  _categoryToRow(c) {
+    return {
+      id: c.id, user_id: this.userId,
+      name: c.name, icon: c.icon, color: c.color,
+      keywords: c.keywords || [],
+      position: c.position || 0,
+      active: c.active !== false,
+      updated_at: c.updatedAt || new Date().toISOString(),
+      created_at: c.createdAt || new Date().toISOString(),
+    };
+  },
+  _categoryLearningToRow(l) {
+    return {
+      id: l.id, user_id: this.userId,
+      match_key: l.matchKey, category_id: l.categoryId,
+      updated_at: l.updatedAt || new Date().toISOString(),
+      created_at: l.createdAt || new Date().toISOString(),
     };
   },
   _goalToRow(g) {
@@ -143,6 +177,7 @@ const Storage = {
         id: r.id, groupId: r.group_id,
         type: r.type, subtype: r.subtype,
         description: r.description, category: r.category,
+        categoryId: r.category_id || null,
         amount: Number(r.amount), paymentMethod: r.payment_method,
         cardId: r.card_id,
         dueDate: r.due_date, purchaseDate: r.purchase_date,
@@ -159,9 +194,46 @@ const Storage = {
       this._set('QUICK', quickRows.map(r => ({
         id: r.id, description: r.description,
         amount: Number(r.amount), paymentMethod: r.payment_method,
+        category: r.category || null, categoryId: r.category_id || null,
         date: r.date, createdAt: r.created_at,
       })));
     }
+
+    // Categorias personalizadas + aprendizado — isolados: tabelas podem não
+    // existir ainda se a migração desta etapa não foi executada no Supabase.
+    try {
+      const { data: catRows, error: catErr } = await db
+        .from('categories').select('*').eq('user_id', userId)
+        .order('position', { ascending: true });
+      if (!catErr && catRows) {
+        this._set('CATEGORIES', catRows.map(r => ({
+          id: r.id, name: r.name, icon: r.icon, color: r.color,
+          keywords: Array.isArray(r.keywords) ? r.keywords : [],
+          position: r.position || 0,
+          active: r.active !== false,
+          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
+        })));
+      }
+    } catch (e) {
+      console.warn('[loadFromCloud] categories:', e.message || e);
+    }
+
+    try {
+      const { data: learnRows, error: learnErr } = await db
+        .from('category_learning').select('*').eq('user_id', userId);
+      if (!learnErr && learnRows) {
+        this._set('CAT_LEARNING', learnRows.map(r => ({
+          id: r.id, matchKey: r.match_key, categoryId: r.category_id,
+          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
+        })));
+      }
+    } catch (e) {
+      console.warn('[loadFromCloud] category_learning:', e.message || e);
+    }
+
+    // Contas antigas (criadas antes desta funcionalidade) não têm categorias —
+    // cria o conjunto padrão automaticamente, uma única vez.
+    try { Categories.ensureDefaults(); } catch (e) { console.warn('[loadFromCloud] ensureDefaults:', e.message || e); }
 
     if (goalRows) {
       this._set('GOALS', goalRows.map(r => ({
@@ -205,16 +277,20 @@ const Storage = {
   // ── Backup / Restore ────────────────────────────────────────────────────────
   exportAll() {
     return {
-      version: 4, exportedAt: new Date().toISOString(),
+      version: 5, exportedAt: new Date().toISOString(),
       transactions: this.getTransactions(),
       quickExpenses: this.getQuickExpenses(),
       goals: this.getGoals(), cards: this.getCards(),
+      categories: this.getCategories(),
+      categoryLearning: this.getCategoryLearning(),
     };
   },
   importAll(data) {
-    if (Array.isArray(data.transactions))  this.setTransactions(data.transactions);
-    if (Array.isArray(data.quickExpenses)) this.setQuickExpenses(data.quickExpenses);
-    if (Array.isArray(data.goals))         this.setGoals(data.goals);
-    if (Array.isArray(data.cards))         this.setCards(data.cards);
+    if (Array.isArray(data.transactions))     this.setTransactions(data.transactions);
+    if (Array.isArray(data.quickExpenses))    this.setQuickExpenses(data.quickExpenses);
+    if (Array.isArray(data.goals))            this.setGoals(data.goals);
+    if (Array.isArray(data.cards))            this.setCards(data.cards);
+    if (Array.isArray(data.categories))       this.setCategories(data.categories);
+    if (Array.isArray(data.categoryLearning)) this.setCategoryLearning(data.categoryLearning);
   },
 };
