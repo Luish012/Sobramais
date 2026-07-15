@@ -8,6 +8,17 @@
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
   {
+    version: '1.3.0',
+    date: '2026-07-15',
+    title: 'Categorias Inteligentes',
+    changes: [
+      'Crie e personalize suas próprias categorias',
+      'Edite nome, ícone, cor e palavras-chave',
+      'Classificação automática dos Gastos Rápidos',
+      'O SobraMais aprende com suas escolhas'
+    ]
+  },
+  {
     version: '1.1.0',
     date: '2026-07-13',
     title: 'Conta, suporte e novidades',
