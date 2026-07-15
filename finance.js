@@ -279,19 +279,30 @@ function sumPendingGoalContributions(year, month) {
 const Finance = {
 
   // ── QUICK EXPENSE ──────────────────────────────────────────────────────────
-  addQuickExpense(desc, amount, paymentMethod) {
+  addQuickExpense(desc, amount, paymentMethod, category, categoryId) {
     const list = Storage.getQuickExpenses();
     const item = {
       id: genId(),
       description: (desc||'').trim(),
       amount: Math.abs(Number(amount)||0),
       paymentMethod: paymentMethod||'pix',
+      category: category || null,
+      categoryId: categoryId || null,
       date: todayStr(),
       createdAt: new Date().toISOString(),
     };
     list.unshift(item);
     Storage.setQuickExpenses(list);
     return item;
+  },
+
+  updateQuickExpenseCategory(id, category, categoryId) {
+    const list = Storage.getQuickExpenses();
+    const idx = list.findIndex(i => i.id === id);
+    if (idx === -1) return null;
+    list[idx] = { ...list[idx], category: category || null, categoryId: categoryId || null };
+    Storage.setQuickExpenses(list);
+    return list[idx];
   },
 
   deleteQuickExpense(id) {
@@ -320,6 +331,7 @@ const Finance = {
       subtype: data.subtype || 'once',
       description: (data.description||'').trim(),
       category: data.category || 'Outros',
+      categoryId: data.categoryId || null,
       amount: Math.abs(Number(data.amount)||0),
       paymentMethod: data.paymentMethod || 'pix',
       cardId,
@@ -356,6 +368,7 @@ const Finance = {
       ...old,
       description: (data.description||'').trim(),
       category: data.category || old.category,
+      categoryId: 'categoryId' in data ? (data.categoryId || null) : old.categoryId,
       amount: Math.abs(Number(data.amount)||old.amount),
       paymentMethod: data.paymentMethod || old.paymentMethod,
       cardId,
