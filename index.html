@@ -986,6 +986,15 @@
       </div>
 
       <div class="acct-section">
+        <div class="acct-section-title">Preferências</div>
+        <div class="acct-menu">
+          <button id="btn-open-categories" class="acct-menu-item" type="button">
+            <span>🏷️ Categorias</span><span class="acct-menu-arrow">›</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="acct-section">
         <div class="acct-section-title">Suporte</div>
         <div class="acct-menu">
           <button class="acct-menu-item" type="button" onclick="Support.openNewTicket()">
@@ -1025,6 +1034,84 @@
       <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem">
         <button id="acct-logout-btn" class="btn btn-outline form-btn-full">Sair da Conta</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Categorias (lista)                                            -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="categories-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Categorias</span>
+      <button id="close-categories-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <button id="btn-add-category" type="button" class="btn btn-primary form-btn-full" style="margin-bottom:0.85rem">+ Nova Categoria</button>
+      <div id="categories-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Categoria (criar / editar)                                    -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="category-edit-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="category-modal-title" class="modal-title">Nova Categoria</span>
+      <button id="close-category-edit-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="category-form" onsubmit="return false">
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input id="category-name" class="form-input" type="text" placeholder="ex: Alimentação" autocomplete="off" />
+          <input id="category-icon-input" type="hidden" value="📦" />
+          <input id="category-color-input" type="hidden" value="#78716c" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ícone</label>
+          <div id="category-icon-grid" class="cat-icon-grid"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cor</label>
+          <div id="category-color-grid" class="cat-color-grid"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Palavras-chave</label>
+          <div id="category-keywords-list" class="cat-keywords-list"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <input id="category-keyword-input" class="form-input" type="text" placeholder="ex: mercado, ifood…" autocomplete="off" style="flex:1" />
+            <button id="btn-add-category-keyword" type="button" class="btn btn-outline btn-sm">Adicionar</button>
+          </div>
+          <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.35rem">Usadas para identificar automaticamente os gastos rápidos desta categoria.</div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:0.5rem">
+          <input id="category-active" type="checkbox" checked />
+          <label class="form-label" style="margin:0" for="category-active">Categoria ativa</label>
+        </div>
+        <div class="form-footer" style="display:flex;flex-direction:column;gap:0.5rem">
+          <button id="category-save-btn" type="button" class="btn btn-primary form-btn-full">Salvar Categoria</button>
+          <button id="btn-delete-category" type="button" class="btn btn-outline form-btn-full" style="display:none;color:var(--destructive);border-color:var(--destructive)">Excluir Categoria</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL: Escolher categoria (gasto rápido sem correspondência)         -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="quick-cat-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Em qual categoria deseja colocar este lançamento?</span>
+      <button id="close-quick-cat-modal" class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="quick-cat-list" class="cat-chip-grid"></div>
     </div>
   </div>
 </div>
@@ -1192,6 +1279,7 @@
 <!-- Restante do sistema -->
 <script src="storage.js"></script>
 <script src="finance.js"></script>
+<script src="categories.js"></script>
 <script src="auth.js"></script>
 <script src="subscription.js"></script>
 <script src="content.js"></script>
