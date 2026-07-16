@@ -2172,6 +2172,144 @@ function saveAddToGoal() {
   doSave();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// INDIQUE E GANHE
+// ═══════════════════════════════════════════════════════════════════════════════
+const Referral = {
+  _cache: null,
+
+  // Busca estatísticas do backend (autenticado via JWT)
+  async loadMyStats(force = false) {
+    if (this._cache && !force) return this._cache;
+    try {
+      const { data: sessionData } = await db.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) return null;
+      const res  = await fetch(CONFIG.BACKEND_URL + '/api/referral/my-stats', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (!res.ok) return null;
+      this._cache = await res.json();
+      return this._cache;
+    } catch (e) {
+      console.warn('[Referral.loadMyStats]', e.message);
+      return null;
+    }
+  },
+
+  // Link completo do usuário
+  link(code) {
+    const base = window.location.origin + window.location.pathname;
+    return `${base}?ref=${code}`;
+  },
+
+  // Copia o link para a área de transferência
+  async copyLink() {
+    const stats = await this.loadMyStats();
+    if (!stats?.code) { showToast('Código de indicação indisponível.', 'error'); return; }
+    const link = this.link(stats.code);
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast('Link copiado!', 'success');
+    } catch {
+      showToast(link, 'success');
+    }
+  },
+
+  // Compartilha via Web Share API (mobile) ou copia
+  async shareLink() {
+    const stats = await this.loadMyStats();
+    if (!stats?.code) { showToast('Código de indicação indisponível.', 'error'); return; }
+    const link = this.link(stats.code);
+    const text = `Eu uso o SobraMais para controlar meu dinheiro e você vai adorar!\n\nUse meu link e ganhe 14 dias grátis:\n${link}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: 'SobraMais — Indique e Ganhe', text }); return; } catch {}
+    }
+    // Fallback: copiar
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast('Link copiado para a área de transferência!', 'success');
+    } catch {
+      showToast(link, 'success');
+    }
+  },
+
+  // Renderiza a seção "Indique e Ganhe" dentro do modal Minha Conta
+  async renderSection() {
+    const el = document.getElementById('acct-referral-content');
+    if (!el) return;
+    el.innerHTML = '<div style="color:var(--muted-fg);font-size:0.85rem">Carregando…</div>';
+
+    const stats = await this.loadMyStats(true);
+    if (!stats || !stats.code) {
+      el.innerHTML = '<div style="color:var(--muted-fg);font-size:0.85rem">Não foi possível carregar seus dados de indicação agora.</div>';
+      return;
+    }
+
+    const link = this.link(stats.code);
+    const pct  = Math.round((stats.progressInGroup / 3) * 100);
+
+    const statusLabel = s => {
+      const m = { pending:'Cadastrado', trial:'Em teste', paid:'Pagamento confirmado', rewarded:'Recompensado', invalid:'Inválido' };
+      return m[s] || s;
+    };
+    const statusColor = s => {
+      const m = { pending:'var(--muted-fg)', trial:'hsl(220,60%,50%)', paid:'var(--success)', rewarded:'var(--primary)', invalid:'var(--destructive)' };
+      return m[s] || 'var(--fg)';
+    };
+
+    const recentRows = (stats.referrals || []).slice(0, 8).map(r => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:0.8rem;color:var(--muted-fg)">${fmtDateTimeSimple(r.createdAt).split(' ')[0]}</span>
+        <span style="font-size:0.8rem;font-weight:500;color:${statusColor(r.status)}">${statusLabel(r.status)}</span>
+      </div>`).join('') || '<div style="font-size:0.82rem;color:var(--muted-fg);padding:0.5rem 0">Nenhum convidado ainda.</div>';
+
+    el.innerHTML = `
+      <!-- Link pessoal -->
+      <div class="referral-link-box">
+        <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted-fg);margin-bottom:0.35rem">Seu link de convite</div>
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+          <div class="referral-code-pill">${esc(stats.code)}</div>
+          <button class="btn btn-outline btn-sm" type="button" onclick="Referral.copyLink()">Copiar link</button>
+          <button class="btn btn-primary btn-sm" type="button" onclick="Referral.shareLink()">Compartilhar</button>
+        </div>
+        <div style="font-size:0.74rem;color:var(--muted-fg);margin-top:0.4rem;word-break:break-all">${esc(link)}</div>
+      </div>
+
+      <!-- Progresso -->
+      <div class="referral-progress-block">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;margin-bottom:1rem">
+          <div class="referral-stat-card">
+            <div class="referral-stat-value">${stats.totalInvited}</div>
+            <div class="referral-stat-label">Convidados</div>
+          </div>
+          <div class="referral-stat-card">
+            <div class="referral-stat-value">${stats.totalPaid}</div>
+            <div class="referral-stat-label">Confirmados</div>
+          </div>
+          <div class="referral-stat-card" style="background:var(--primary-dim)">
+            <div class="referral-stat-value" style="color:var(--primary)">${stats.totalDaysEarned}</div>
+            <div class="referral-stat-label" style="color:var(--primary)">Dias ganhos</div>
+          </div>
+        </div>
+        <div style="font-size:0.8rem;color:var(--muted-fg);margin-bottom:0.4rem">
+          ${stats.progressInGroup} de 3 indicações válidas para o próximo bônus
+          ${stats.progressInGroup < 3 ? `· Falta${stats.nextGroupNeed > 1 ? 'm' : ''} ${stats.nextGroupNeed} para ganhar mais 30 dias` : ''}
+        </div>
+        <div class="referral-progress-bar">
+          <div class="referral-progress-fill" style="width:${pct}%"></div>
+        </div>
+        ${stats.rewardsGiven > 0 ? `<div style="font-size:0.74rem;color:var(--primary);margin-top:0.4rem;font-weight:500">🏆 ${stats.rewardsGiven} mês${stats.rewardsGiven > 1 ? 'es' : ''} grátis já conquistado${stats.rewardsGiven > 1 ? 's' : ''}</div>` : ''}
+      </div>
+
+      <!-- Histórico recente -->
+      <div style="margin-top:0.75rem">
+        <div style="font-size:0.76rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-fg);margin-bottom:0.35rem">Histórico de convidados</div>
+        ${recentRows}
+      </div>`;
+  },
+};
+
 // ─── BACKUP ──────────────────────────────────────────────────────────────────
 function exportBackup() {
   const data = Storage.exportAll();
@@ -2242,6 +2380,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('home-go-dashboard').addEventListener('click', () => showView('dashboard'));
   document.getElementById('home-go-process').addEventListener('click', () => {
     openProcessPayments();
+  });
+  document.getElementById('home-go-referral').addEventListener('click', () => {
+    openAccountModal();
+    // Rolar até a seção após o modal abrir
+    requestAnimationFrame(() => {
+      const section = document.getElementById('acct-referral-section');
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   });
 
   // ── Dashboard header ────────────────────────────────────────────────────────
