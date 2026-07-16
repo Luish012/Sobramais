@@ -991,3 +991,107 @@ a { color: inherit; text-decoration: none; }
 .rpt-tx-desc { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rpt-tx-pay  { color: var(--muted-fg); white-space: nowrap; }
 .rpt-tx-amt  { font-weight: 600; color: var(--fg); white-space: nowrap; text-align: right; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* INDIQUE E GANHE                                                              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Card da tela inicial */
+.referral-home-card {
+  border: 1.5px solid hsl(42,60%,75%) !important;
+  background: linear-gradient(135deg, hsl(42,70%,98%), hsl(42,50%,94%)) !important;
+}
+.referral-home-card:hover {
+  border-color: var(--primary) !important;
+  background: linear-gradient(135deg, hsl(42,70%,95%), hsl(42,55%,90%)) !important;
+}
+.home-card-icon.referral-icon {
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-size: 1.5rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.referral-home-card:hover .home-card-icon.referral-icon {
+  background: var(--primary);
+}
+
+/* Link box */
+.referral-link-box {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* Pílula do código */
+.referral-code-pill {
+  background: var(--card);
+  border: 1.5px solid var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  border-radius: var(--r-full);
+  padding: 0.2rem 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bloco de progresso */
+.referral-progress-block {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Cards de estatísticas (3 colunas) */
+.referral-stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 0.6rem;
+  text-align: center;
+}
+.referral-stat-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  line-height: 1.15;
+}
+.referral-stat-label {
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-fg);
+  margin-top: 0.15rem;
+}
+
+/* Barra de progresso */
+.referral-progress-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+.referral-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), hsl(38,90%,55%));
+  border-radius: var(--r-full);
+  transition: width 0.5s ease;
+  min-width: 4px;
+}
+
+/* Botões sm extras */
+.btn.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: var(--r-full);
+}
