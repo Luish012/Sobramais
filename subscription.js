@@ -210,4 +210,6 @@ function openAccountModal() {
   const el2 = document.getElementById('acct-app-version-2');
   if (el2) el2.textContent = 'Versão ' + (CONFIG.APP_VERSION || '—');
   openModal('account-modal');
+  // Carregar seção "Indique e Ganhe" de forma assíncrona (não bloqueia abertura do modal)
+  try { Referral.renderSection(); } catch (e) { console.warn('[openAccountModal] Referral.renderSection:', e.message); }
 }
