@@ -15,7 +15,7 @@ const CONFIG = {
   PLAN_PRICE: 9.90,
 
   // Versão atual do aplicativo (exibida em Minha Conta / Novidades)
-  APP_VERSION: '1.1.0',
+  APP_VERSION: '1.3.0',
 
   // Instagram institucional
   INSTAGRAM_HANDLE: '@sobramais_app',
