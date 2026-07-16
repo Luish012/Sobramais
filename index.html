@@ -282,6 +282,14 @@
         <div class="home-card-sub">Visão completa das finanças</div>
       </div>
     </button>
+
+    <button id="home-go-referral" class="home-card referral-home-card" type="button">
+      <div class="home-card-icon referral-icon">🎁</div>
+      <div>
+        <div class="home-card-title">Indique e Ganhe</div>
+        <div class="home-card-sub">Convide amigos e ganhe meses grátis</div>
+      </div>
+    </button>
   </div>
 </div>
 
@@ -510,6 +518,7 @@
     <button class="admin-nav-btn" type="button" data-adminsection="trials" onclick="Admin.showSection('trials')">Trials</button>
     <button class="admin-nav-btn" type="button" data-adminsection="support" onclick="Admin.showSection('support')">Suporte</button>
     <button class="admin-nav-btn" type="button" data-adminsection="notifications" onclick="Admin.showSection('notifications')">Notificações</button>
+    <button class="admin-nav-btn" type="button" data-adminsection="referrals" onclick="Admin.showSection('referrals')">Indicações</button>
   </nav>
 
   <div class="admin-scroll">
@@ -561,6 +570,18 @@
         <button class="admin-filter-btn" type="button" data-adminticketfilter="encerrados" onclick="Admin.setTicketFilter('encerrados')">Encerrados</button>
       </div>
       <div id="admin-tickets-list" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section" data-adminsection="referrals">
+      <div class="admin-filter-row">
+        <button class="admin-filter-btn active" type="button" data-adminreffilter="todos"     onclick="Admin.setRefFilter('todos')">Todos</button>
+        <button class="admin-filter-btn"        type="button" data-adminreffilter="trial"     onclick="Admin.setRefFilter('trial')">Em trial</button>
+        <button class="admin-filter-btn"        type="button" data-adminreffilter="paid"      onclick="Admin.setRefFilter('paid')">Confirmados</button>
+        <button class="admin-filter-btn"        type="button" data-adminreffilter="rewarded"  onclick="Admin.setRefFilter('rewarded')">Recompensados</button>
+        <button class="admin-filter-btn"        type="button" data-adminreffilter="pending"   onclick="Admin.setRefFilter('pending')">Pendentes</button>
+        <button class="admin-filter-btn"        type="button" data-adminreffilter="invalid"   onclick="Admin.setRefFilter('invalid')">Inválidos</button>
+      </div>
+      <div id="admin-referrals-list" class="admin-list"></div>
     </div>
 
     <div class="admin-section" data-adminsection="notifications">
@@ -962,6 +983,12 @@
         </div>
 
         <button class="btn btn-outline form-btn-full" style="margin-top:0.5rem" onclick="Support.changePassword()">Alterar Senha</button>
+      </div>
+
+      <!-- ── Indique e Ganhe ──────────────────────────────────────────── -->
+      <div class="acct-section" id="acct-referral-section">
+        <div class="acct-section-title">🎁 Indique e Ganhe</div>
+        <div id="acct-referral-content" style="font-size:0.85rem;color:var(--muted-fg)">Carregando…</div>
       </div>
 
       <!-- ── Assinatura ────────────────────────────────────────────────── -->
