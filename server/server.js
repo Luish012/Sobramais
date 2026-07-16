@@ -225,6 +225,7 @@ app.post('/api/asaas/webhook', async (req, res) => {
   try {
     if (evtName === 'PAYMENT_RECEIVED' || evtName === 'PAYMENT_CONFIRMED') {
       const asaasSubId = event.payment?.subscription;
+      const paymentId  = event.payment?.id;
       if (asaasSubId) {
         const end = new Date();
         end.setMonth(end.getMonth() + 1);
@@ -241,8 +242,28 @@ app.post('/api/asaas/webhook', async (req, res) => {
             userId: subRow.user_id, type: 'subscription_activated',
             title: 'Assinatura ativada', message: 'Seu pagamento foi confirmado e sua assinatura está ativa.',
             actionType: 'subscription',
-            dedupeKey: `sub-active-${event.payment?.id || event.id || asaasSubId}`,
+            dedupeKey: `sub-active-${paymentId || event.id || asaasSubId}`,
           });
+
+          // ── Indique e Ganhe: processar primeiro pagamento do indicado ──
+          try {
+            const { data: refRow } = await supabase.from('referrals')
+              .select('*').eq('referred_id', subRow.user_id).eq('status', 'trial').maybeSingle();
+
+            // Processa somente se: há indicação no status 'trial' E ainda não tem first_payment_id
+            if (refRow && !refRow.first_payment_id) {
+              await supabase.from('referrals').update({
+                status:           'paid',
+                first_payment_id: paymentId || asaasSubId,
+                paid_at:          new Date().toISOString(),
+              }).eq('id', refRow.id);
+
+              // Verificar e conceder recompensa ao indicador
+              await processReferralReward(refRow.referrer_id);
+            }
+          } catch (refErr) {
+            console.error('[webhook] Erro no processamento de indicação (não crítico):', refErr.message);
+          }
         }
       }
     }
@@ -291,20 +312,117 @@ app.post('/api/asaas/webhook', async (req, res) => {
   res.json({ received: true });
 });
 
+// ─── HELPERS: Indique e Ganhe ──────────────────────────────────────────────────
+function generateRefCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'SM-';
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+async function getOrCreateRefCode(userId) {
+  const { data } = await supabase.from('referral_codes').select('code').eq('user_id', userId).maybeSingle();
+  if (data?.code) return data.code;
+  // Gera código único com retry
+  for (let i = 0; i < 10; i++) {
+    const code = generateRefCode();
+    const { error } = await supabase.from('referral_codes').insert({ user_id: userId, code });
+    if (!error) return code;
+  }
+  return null;
+}
+
+// Concede dias grátis ao indicador por grupos completos de 3 indicações pagas.
+// Idempotente: usa referral_rewards com unique index (referrer_id, reward_group).
+async function processReferralReward(referrerId) {
+  try {
+    const { count: totalPaid } = await supabase.from('referrals')
+      .select('id', { count: 'exact', head: true })
+      .eq('referrer_id', referrerId)
+      .in('status', ['paid', 'rewarded']);
+
+    const groupsDeserved = Math.floor((totalPaid || 0) / 3);
+    if (groupsDeserved === 0) return;
+
+    const { count: rewardsGiven } = await supabase.from('referral_rewards')
+      .select('id', { count: 'exact', head: true })
+      .eq('referrer_id', referrerId);
+
+    const newGroups = groupsDeserved - (rewardsGiven || 0);
+    if (newGroups <= 0) return;
+
+    const { data: sub } = await supabase.from('subscriptions').select('*').eq('user_id', referrerId).single();
+    const { data: paidRefs } = await supabase.from('referrals')
+      .select('id').eq('referrer_id', referrerId).in('status', ['paid', 'rewarded'])
+      .order('paid_at', { ascending: true });
+
+    let currentEnd = sub?.end_date && sub.end_date >= todayStr()
+      ? sub.end_date
+      : todayStr();
+
+    for (let i = (rewardsGiven || 0); i < groupsDeserved; i++) {
+      const rewardGroup = i + 1;
+      const triggerRef = paidRefs?.[i * 3 + 2]; // 3ª indicação de cada grupo (índice 2, 5, 8…)
+
+      const base = new Date(currentEnd + 'T00:00:00Z');
+      base.setUTCDate(base.getUTCDate() + 30);
+      currentEnd = base.toISOString().split('T')[0];
+
+      // Registrar recompensa (ignore duplicatas via unique index)
+      await supabase.from('referral_rewards').upsert({
+        referrer_id: referrerId,
+        referral_id: triggerRef?.id || null,
+        days_granted: 30,
+        reward_group: rewardGroup,
+      }, { onConflict: 'referrer_id,reward_group', ignoreDuplicates: true });
+    }
+
+    // Estender assinatura
+    const newStatus = (!sub?.status || sub.status === 'inactive') ? 'trial' : sub.status;
+    await supabase.from('subscriptions').update({
+      end_date: currentEnd,
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    }).eq('user_id', referrerId);
+
+    // Marcar indicações como 'rewarded'
+    await supabase.from('referrals').update({
+      status: 'rewarded',
+      rewarded_at: new Date().toISOString(),
+    }).eq('referrer_id', referrerId).eq('status', 'paid');
+
+    // Notificar indicador
+    const daysTotal = newGroups * 30;
+    await createNotification({
+      userId: referrerId,
+      type: 'referral_reward',
+      title: '🎁 Você ganhou dias grátis!',
+      message: `Você completou ${newGroups} grupo${newGroups > 1 ? 's' : ''} de 3 indicações confirmadas e ganhou ${daysTotal} dias grátis de acesso!`,
+      actionType: 'subscription',
+      dedupeKey: `referral-reward-${referrerId}-${groupsDeserved}`,
+    });
+
+    console.log(`[referral] ${referrerId} recebeu ${daysTotal} dias (${newGroups} grupo(s)). Novo fim: ${currentEnd}`);
+  } catch (e) {
+    console.error('[processReferralReward]', e.message);
+  }
+}
+
 // ─── TRIAL — VERIFICAR E CRIAR ────────────────────────────────────────────────
 // POST /api/trial/init
-// Body: { userId: string, cpf: string }
+// Body: { userId: string, cpf: string, refCode?: string }
 //
 // Fluxo:
 //   1. Valida userId e CPF (somente 11 dígitos numéricos)
 //   2. Consulta trial_registry pelo CPF
-//   3. CPF inédito  → insere em trial_registry + upsert subscription como 'trial' (7 dias)
+//   3. CPF inédito  → insere em trial_registry + upsert subscription como 'trial'
+//      Se refCode válido: 14 dias (7 padrão + 7 bônus). Cria registro de indicação.
 //   4. CPF já usado → upsert subscription como 'inactive' (sem datas)
 //   5. Retorna a subscription atualizada
 //
-// Pré-requisito: rode trial-fix.sql no Supabase (cria trial_registry + cards + coluna cpf).
+// Pré-requisito: execute trial-fix.sql e indique-e-ganhe.sql no Supabase.
 app.post('/api/trial/init', async (req, res) => {
-  const { userId, cpf } = req.body;
+  const { userId, cpf, refCode } = req.body;
 
   // ── Validação de entrada ─────────────────────────────────────────────────
   if (!userId || !cpf) {
@@ -376,6 +494,50 @@ app.post('/api/trial/init', async (req, res) => {
       subData = upserted;
       console.log('[trial/init] Trial criado — userId:', userId, '| CPF:', cpfDigits, '| até:', endStr);
 
+      // ── Processar código de indicação (refCode) ────────────────────────
+      // Seguro: erros aqui nunca travam o trial já criado.
+      if (refCode && typeof refCode === 'string') {
+        try {
+          const cleanCode = refCode.toUpperCase().trim();
+          const { data: codeRow } = await supabase
+            .from('referral_codes').select('user_id').eq('code', cleanCode).maybeSingle();
+
+          // Validações: código existe + não é auto-indicação + indicado não tem registro anterior
+          if (codeRow && codeRow.user_id !== userId) {
+            const { data: existingRef } = await supabase
+              .from('referrals').select('id').eq('referred_id', userId).maybeSingle();
+
+            if (!existingRef) {
+              // Bonus de 7 dias extras para o convidado (total: 14 dias)
+              const bonusEnd  = new Date(endStr + 'T00:00:00Z');
+              bonusEnd.setUTCDate(bonusEnd.getUTCDate() + 7);
+              const bonusEndStr = bonusEnd.toISOString().split('T')[0];
+
+              await supabase.from('subscriptions').update({
+                end_date: bonusEndStr,
+                updated_at: new Date().toISOString(),
+              }).eq('user_id', userId);
+              subData.end_date = bonusEndStr;
+
+              // Registrar indicação
+              await supabase.from('referrals').insert({
+                referrer_id:   codeRow.user_id,
+                referred_id:   userId,
+                code_used:     cleanCode,
+                status:        'trial',
+                trial_granted: true,
+                extra_days:    7,
+                trial_at:      new Date().toISOString(),
+              });
+
+              console.log(`[trial/init] Indicação registrada — referrer: ${codeRow.user_id} → referred: ${userId} | bônus: +7 dias (até ${bonusEndStr})`);
+            }
+          }
+        } catch (refErr) {
+          console.warn('[trial/init] Erro ao processar refCode (não crítico):', refErr.message);
+        }
+      }
+
     } else {
       // ── 2b. CPF já utilizado — marcar como inactive (sem datas) ───────────
       const { data: upserted, error: subErr } = await supabase
@@ -411,6 +573,59 @@ app.post('/api/trial/init', async (req, res) => {
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
 app.get('/api/health', (_, res) => res.json({ ok: true }));
+
+// ─── INDIQUE E GANHE — Estatísticas do usuário ────────────────────────────────
+app.get('/api/referral/my-stats', requireUser, async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+
+    // Obter (ou criar) código de indicação
+    let { data: codeRow } = await supabase
+      .from('referral_codes').select('code').eq('user_id', userId).maybeSingle();
+    if (!codeRow) {
+      const code = await getOrCreateRefCode(userId);
+      codeRow = { code };
+    }
+
+    // Indicações feitas por este usuário
+    const { data: referrals } = await supabase
+      .from('referrals').select('*').eq('referrer_id', userId)
+      .order('created_at', { ascending: false });
+
+    const totalInvited = (referrals || []).length;
+    const totalPaid    = (referrals || []).filter(r => ['paid', 'rewarded'].includes(r.status)).length;
+    const progressInGroup = totalPaid % 3;
+    const nextGroupNeed   = progressInGroup === 0 ? 3 : 3 - progressInGroup;
+
+    // Recompensas já concedidas
+    const { data: rewards } = await supabase
+      .from('referral_rewards').select('days_granted,reward_group').eq('referrer_id', userId);
+    const rewardsGiven   = (rewards || []).length;
+    const totalDaysEarned = (rewards || []).reduce((s, r) => s + (r.days_granted || 0), 0);
+
+    res.json({
+      code:           codeRow?.code || null,
+      totalInvited,
+      totalPaid,
+      progressInGroup,
+      nextGroupNeed,
+      rewardsGiven,
+      totalDaysEarned,
+      referrals: (referrals || []).map(r => ({
+        id:           r.id,
+        status:       r.status,
+        trialGranted: r.trial_granted,
+        extraDays:    r.extra_days,
+        createdAt:    r.created_at,
+        paidAt:       r.paid_at,
+        rewardedAt:   r.rewarded_at,
+      })),
+    });
+  } catch (e) {
+    console.error('[referral/my-stats]', e.message);
+    res.status(500).json({ error: 'Erro ao carregar estatísticas de indicação.' });
+  }
+});
 
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -541,6 +756,71 @@ app.post('/api/notifications/sync', requireUser, async (req, res) => {
   } catch (e) {
     console.error('[notifications/sync]', e.message);
     res.json({ ok: false }); // nunca retorna erro que trave o login
+  }
+});
+
+// ─── ADMIN — INDIQUE E GANHE ──────────────────────────────────────────────────
+app.get('/api/admin/referrals', requireAdmin, async (req, res) => {
+  try {
+    const { filter = 'todos' } = req.query;
+    let query = supabase.from('referrals').select('*').order('created_at', { ascending: false });
+
+    if (filter === 'pending')  query = query.eq('status', 'pending');
+    if (filter === 'trial')    query = query.eq('status', 'trial');
+    if (filter === 'paid')     query = query.eq('status', 'paid');
+    if (filter === 'rewarded') query = query.eq('status', 'rewarded');
+    if (filter === 'invalid')  query = query.eq('status', 'invalid');
+
+    const { data: rows, error } = await query;
+    if (error) throw error;
+
+    // Enriquecer com nomes dos usuários
+    const userIds = [...new Set([
+      ...(rows || []).map(r => r.referrer_id),
+      ...(rows || []).map(r => r.referred_id),
+    ])].filter(Boolean);
+
+    let profilesMap = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase
+        .from('profiles').select('id,name').in('id', userIds);
+      profilesMap = Object.fromEntries((profiles || []).map(p => [p.id, p.name]));
+    }
+
+    // Recompensas por indicador
+    const referrerIds = [...new Set((rows || []).map(r => r.referrer_id))];
+    let rewardsMap = {};
+    if (referrerIds.length) {
+      const { data: rewards } = await supabase
+        .from('referral_rewards').select('referrer_id,days_granted,reward_group').in('referrer_id', referrerIds);
+      for (const rw of (rewards || [])) {
+        if (!rewardsMap[rw.referrer_id]) rewardsMap[rw.referrer_id] = { totalDays: 0, groups: 0 };
+        rewardsMap[rw.referrer_id].totalDays += rw.days_granted || 0;
+        rewardsMap[rw.referrer_id].groups += 1;
+      }
+    }
+
+    res.json((rows || []).map(r => ({
+      id:              r.id,
+      referrerId:      r.referrer_id,
+      referrerName:    profilesMap[r.referrer_id] || '—',
+      referredId:      r.referred_id,
+      referredName:    profilesMap[r.referred_id] || '—',
+      codeUsed:        r.code_used,
+      status:          r.status,
+      trialGranted:    r.trial_granted,
+      extraDays:       r.extra_days,
+      firstPaymentId:  r.first_payment_id,
+      createdAt:       r.created_at,
+      trialAt:         r.trial_at,
+      paidAt:          r.paid_at,
+      rewardedAt:      r.rewarded_at,
+      referrerTotalDays:  rewardsMap[r.referrer_id]?.totalDays || 0,
+      referrerTotalGroups: rewardsMap[r.referrer_id]?.groups || 0,
+    })));
+  } catch (e) {
+    console.error('[admin/referrals]', e.message);
+    res.status(500).json({ error: 'Erro ao carregar indicações.' });
   }
 });
 
