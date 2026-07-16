@@ -8,6 +8,17 @@
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
   {
+    version: "1.3.0",
+    date: "16/07/2026",
+    title: "🎁 Indique e Ganhe",
+    changes: [
+      "Convide amigos para o SobraMais através do seu link exclusivo.",
+      "Quem entra pelo seu convite recebe 14 dias gratuitos para testar o aplicativo.",
+      "A cada 3 indicações que se tornarem assinantes, você ganha 30 dias grátis.",
+      "Acompanhe seu progresso e compartilhe seu convite diretamente pelo aplicativo."
+  ]
+},
+  {
     version: '1.2.0',
     date: '2026-07-15',
     title: 'Categorias Inteligentes',
