@@ -73,7 +73,71 @@ const Admin = {
     if (name === 'subscriptions') Admin.loadSubscriptions();
     if (name === 'trials')        Admin.loadTrials();
     if (name === 'support')       Admin.loadTickets();
+    if (name === 'referrals')     Admin.loadReferrals();
     // "notifications" (envio) não carrega lista — é um formulário.
+  },
+
+  // ── INDICAÇÕES ─────────────────────────────────────────────────────────────
+  _refFilter: 'todos',
+  setRefFilter(f) {
+    Admin._refFilter = f;
+    document.querySelectorAll('[data-adminreffilter]').forEach(b => b.classList.toggle('active', b.dataset.adminreffilter === f));
+    Admin.loadReferrals();
+  },
+
+  _refStatusLabel(s) {
+    const m = { pending:'Cadastrado', trial:'Em trial', paid:'Pag. confirmado', rewarded:'Recompensado', invalid:'Inválido' };
+    return m[s] || s;
+  },
+
+  _refStatusColor(s) {
+    const m = { pending:'var(--muted-fg)', trial:'hsl(220,60%,50%)', paid:'var(--success)', rewarded:'var(--primary)', invalid:'var(--destructive)' };
+    return m[s] || 'inherit';
+  },
+
+  async loadReferrals() {
+    const el = document.getElementById('admin-referrals-list');
+    if (!el) return;
+    el.innerHTML = '<div class="support-empty">Carregando…</div>';
+    try {
+      const filter = Admin._refFilter || 'todos';
+      const rows = await Admin._api('/api/admin/referrals?filter=' + encodeURIComponent(filter));
+
+      if (!rows || rows.length === 0) {
+        el.innerHTML = '<div class="support-empty">Nenhuma indicação encontrada.</div>';
+        return;
+      }
+
+      const fmtDate = v => {
+        if (!v) return '—';
+        const d = new Date(v);
+        return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      };
+
+      el.innerHTML = rows.map(r => `
+        <div class="admin-item" style="border-left:3px solid ${Admin._refStatusColor(r.status)}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.25rem">
+            <div>
+              <div style="font-weight:600;font-size:0.9rem">Indicador: ${esc(r.referrerName)}</div>
+              <div style="font-size:0.82rem;color:var(--muted-fg)">Convidado: ${esc(r.referredName)}</div>
+            </div>
+            <span style="font-size:0.75rem;font-weight:600;padding:0.2rem 0.6rem;border-radius:9999px;background:${Admin._refStatusColor(r.status)}22;color:${Admin._refStatusColor(r.status)}">${esc(Admin._refStatusLabel(r.status))}</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem;font-size:0.78rem;color:var(--muted-fg)">
+            <span>Código: <b style="color:var(--fg)">${esc(r.codeUsed)}</b></span>
+            ${r.trialGranted ? `<span>+${r.extraDays}d bônus ✓</span>` : ''}
+            ${r.referrerTotalDays ? `<span>Indicador acumulou: <b style="color:var(--primary)">${r.referrerTotalDays} dias</b></span>` : ''}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1rem;margin-top:0.35rem;font-size:0.77rem;color:var(--muted-fg)">
+            <span>Cadastro: ${fmtDate(r.createdAt)}</span>
+            ${r.paidAt    ? `<span>Pagamento: ${fmtDate(r.paidAt)}</span>` : '<span></span>'}
+            ${r.rewardedAt ? `<span style="color:var(--primary)">Recompensado: ${fmtDate(r.rewardedAt)}</span>` : '<span></span>'}
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      console.error('[Admin.loadReferrals]', e);
+      el.innerHTML = '<div class="support-empty">Não foi possível carregar as indicações agora.</div>';
+    }
   },
 
   // ── VISÃO GERAL ────────────────────────────────────────────────────────────
