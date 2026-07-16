@@ -7,6 +7,19 @@ const Auth = {
   // ── Inicializa o listener de sessão ────────────────────────────────────────
   async init() {
     console.log("AUTH INIT");
+
+    // Capturar código de indicação da URL (?ref=SM-XXXXX) antes de qualquer redirect
+    try {
+      const urlRef = new URLSearchParams(window.location.search).get('ref');
+      if (urlRef && /^SM-[A-Z0-9]{5}$/i.test(urlRef.trim())) {
+        sessionStorage.setItem('sobramais_ref_code', urlRef.trim().toUpperCase());
+        // Remover o parâmetro da URL sem recarregar a página
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete('ref');
+        window.history.replaceState({}, '', clean.toString());
+      }
+    } catch (e) { /* ignore */ }
+
     const hash = window.location.hash;
     if (hash.includes('type=recovery') || hash.includes('type=email_change')) {
       showAuthView('reset-pw');
@@ -88,11 +101,14 @@ const Auth = {
 
   async _initTrial(user, cpf) {
     try {
+      const refCode = user.user_metadata?.ref_code || sessionStorage.getItem('sobramais_ref_code') || undefined;
       const res  = await fetch(CONFIG.BACKEND_URL + '/api/trial/init', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, cpf }),
+        body: JSON.stringify({ userId: user.id, cpf, ...(refCode ? { refCode } : {}) }),
       });
+      // Limpar código da sessão após uso (bônus só pode ser recebido uma vez)
+      sessionStorage.removeItem('sobramais_ref_code');
       // Parsear resposta sempre (sucesso ou erro HTTP)
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -156,9 +172,11 @@ const Auth = {
     btn.textContent = 'Criando conta...';
     btn.disabled = true;
     try {
+      // Incluir código de indicação nos metadados do usuário (se houver)
+      const refCode = sessionStorage.getItem('sobramais_ref_code') || undefined;
       const { data, error } = await db.auth.signUp({
         email, password,
-        options: { data: { name, cpf } },
+        options: { data: { name, cpf, ...(refCode ? { ref_code: refCode } : {}) } },
       });
       if (error) throw error;
       if (data.user && !data.session) {
