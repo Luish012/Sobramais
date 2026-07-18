@@ -7,6 +7,15 @@
 // ── NOVIDADES ──────────────────────────────────────────────────────────────
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
+{
+  version: "1.3.1",
+  title: "Correções e melhorias",
+  changes: [
+    "Corrigido o bug ao sair da conta, garantindo que a janela de confirmação seja fechada após o logout.",
+    "A categorização inteligente agora também funciona em tempo real nos lançamentos completos.",
+    "O botão 'Indique e Ganhe' da tela principal foi reduzido para um formato mais compacto."
+  ]
+}
   {
     version: "1.3.0",
     date: "16/07/2026",
