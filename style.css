@@ -996,26 +996,59 @@ a { color: inherit; text-decoration: none; }
 /* INDIQUE E GANHE                                                              */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Card da tela inicial */
-.referral-home-card {
-  border: 1.5px solid hsl(42,60%,75%) !important;
-  background: linear-gradient(135deg, hsl(42,70%,98%), hsl(42,50%,94%)) !important;
+/* Banner compacto na tela inicial */
+.referral-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: linear-gradient(135deg, hsl(42,70%,97%), hsl(42,50%,93%));
+  border: 1.5px solid hsl(42,60%,75%);
+  border-radius: var(--r-xl);
+  cursor: pointer;
+  transition: transform var(--ease), box-shadow var(--ease), border-color var(--ease);
+  text-align: left;
 }
-.referral-home-card:hover {
-  border-color: var(--primary) !important;
-  background: linear-gradient(135deg, hsl(42,70%,95%), hsl(42,55%,90%)) !important;
+.referral-banner:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--primary);
 }
-.home-card-icon.referral-icon {
-  background: var(--primary-dim);
-  color: var(--primary);
-  font-size: 1.5rem;
-  line-height: 1;
+.referral-banner:active { transform: scale(0.99); }
+.referral-banner-icon {
+  font-size: 1.2rem;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--primary-dim);
+  border-radius: var(--r-full);
+  flex-shrink: 0;
 }
-.referral-home-card:hover .home-card-icon.referral-icon {
-  background: var(--primary);
+.referral-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.referral-banner-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.3;
+}
+.referral-banner-sub {
+  font-size: 0.73rem;
+  color: var(--muted-fg);
+}
+.referral-banner-arrow {
+  color: var(--primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  opacity: 0.75;
 }
 
 /* Link box */
