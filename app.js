@@ -2445,6 +2445,18 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tx-duedate').addEventListener('change', updateInvoicePreview);
   document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
   document.getElementById('btn-add-income').addEventListener('click', () => openAddTx('income'));
+
+  // ── IA de categorias no formulário de lançamento (mesmo comportamento dos Gastos Rápidos) ──
+  document.getElementById('tx-desc')?.addEventListener('input', () => {
+    // Só para despesas — entradas usam categorias fixas sem IA
+    if (_txType !== 'expense') return;
+    const desc = document.getElementById('tx-desc')?.value.trim();
+    if (!desc) return;
+    const match = CatIntel.classify(desc);
+    if (!match) return;
+    const sel = document.getElementById('tx-category');
+    if (sel && [...sel.options].some(o => o.value === match.id)) sel.value = match.id;
+  });
   document.getElementById('btn-add-income-2').addEventListener('click', () => {
     openAddTx('income');
     setTimeout(() => {
@@ -2487,7 +2499,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Account modal ─────────────────────────────────────────────────────────
   document.getElementById('close-account-modal').addEventListener('click', () => closeModal('account-modal'));
   document.getElementById('acct-cancel-btn').addEventListener('click', () => Subscription.cancel());
-  document.getElementById('acct-logout-btn').addEventListener('click', () => Auth.logout());
+  document.getElementById('acct-logout-btn').addEventListener('click', () => {
+    confirmDialog('Deseja sair da sua conta?', () => {
+      // Fechar o modal antes do logout para não deixar tela congelada
+      closeModal('account-modal');
+      Auth.logout();
+    });
+  });
 
   // ── Editar nome ────────────────────────────────────────────────────────────
   document.getElementById('close-edit-name-modal')?.addEventListener('click', () => closeModal('edit-name-modal'));
