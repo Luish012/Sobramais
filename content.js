@@ -8,6 +8,15 @@
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
 {
+  version: "1.3.2",
+  title: "Melhorias no painel financeiro",
+  changes: [
+    "Os Relatórios agora utilizam o mesmo mês selecionado no Painel Financeiro, eliminando a navegação independente entre telas.",
+    "Os Gastos Rápidos passaram a exibir todos os lançamentos realizados pelo fluxo rápido, inclusive compras no cartão de crédito.",
+    "Agora é possível abrir a edição de um lançamento diretamente pela lista de Gastos Rápidos, sem precisar procurá-lo em outra aba."
+  ]
+}
+{
   version: "1.3.1",
   title: "Correções e melhorias",
   changes: [
