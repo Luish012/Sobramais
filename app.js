@@ -528,30 +528,66 @@ function renderOverview() {
 }
 
 function renderQuickList() {
-  const quick = Storage.getQuickExpenses()
+  // Gastos rápidos regulares (débito, pix, dinheiro, etc.) — lista separada
+  const regularQuick = Storage.getQuickExpenses()
     .filter(q => {
-      if (q.paymentMethod === 'credito') return false;
       const d = new Date(q.date + 'T00:00:00');
       return d.getFullYear() === State.year && d.getMonth() === State.month;
     })
+    .map(q => ({ ...q, _source: 'quick' }));
+
+  // Gastos rápidos no crédito — armazenados como transações com isQuick:true
+  const creditQuick = Storage.getTransactions()
+    .filter(tx => {
+      if (!tx.isQuick || tx.paymentMethod !== 'credito') return false;
+      const dateStr = tx.purchaseDate || tx.dueDate;
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.getFullYear() === State.year && d.getMonth() === State.month;
+    })
+    .map(tx => ({
+      ...tx,
+      _source: 'tx',
+      date: tx.purchaseDate || tx.dueDate,
+    }));
+
+  // Combinar e ordenar por data de criação/data (mais recente primeiro)
+  const allQuick = [...regularQuick, ...creditQuick]
+    .sort((a, b) => {
+      const da = a.createdAt || a.date || '';
+      const db = b.createdAt || b.date || '';
+      return db > da ? 1 : -1;
+    })
     .slice(0, 50);
+
   const el = document.getElementById('quick-list');
   if (!el) return;
-  if (quick.length === 0) {
+  if (allQuick.length === 0) {
     el.innerHTML = '<p style="text-align:center;color:var(--muted-fg);font-size:0.875rem;padding:1.5rem 0">Nenhum gasto rápido neste mês.<br>Use o botão acima para lançar.</p>';
     return;
   }
-  el.innerHTML = quick.map(q => `
+  el.innerHTML = allQuick.map(q => {
+    const isCredit = q._source === 'tx';
+    // IDs com prefixo "qtx_" identificam transações de crédito no deleteQuick
+    const itemId = isCredit ? 'qtx_' + q.id : q.id;
+    const metaRight = isCredit
+      ? `<span class="tag tag-gold">💳 Crédito</span>`
+      : categoryBadge(q.categoryId, q.category, q.id);
+    const editBtn = isCredit
+      ? `<button class="btn-icon" onclick="openEditTx('${q.id}')" title="Editar">✏</button>`
+      : '';
+    return `
     <div class="quick-row">
       <div class="quick-info">
         <div class="quick-desc">${esc(q.description)}</div>
-        <div class="quick-meta">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)} · ${categoryBadge(q.categoryId, q.category, q.id)}</div>
+        <div class="quick-meta">${fmtDate(q.date)} · ${fmtPayment(q.paymentMethod)} · ${metaRight}</div>
       </div>
       <div class="quick-right">
         <span class="quick-amount">${fmtCurrency(q.amount)}</span>
-        <button class="btn-icon" onclick="deleteQuick('${q.id}')" title="Excluir">✕</button>
+        ${editBtn}
+        <button class="btn-icon" onclick="deleteQuick('${itemId}')" title="Excluir">✕</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // Selo de categoria clicável, usado nas listas de gasto rápido.
@@ -1020,10 +1056,21 @@ function doDeleteGoal(id) {
   });
 }
 function deleteQuick(id) {
-  Finance.deleteQuickExpense(id);
-  showToast('Gasto excluído');
-  renderQuickList();
-  renderOverview();
+  if (id.startsWith('qtx_')) {
+    // Gasto rápido no crédito — deleta a transação (remove da fatura + atualiza totais)
+    const txId = id.slice(4);
+    confirmDialog('Excluir esta compra do cartão? Ela será removida da fatura.', () => {
+      Finance.deleteTransaction(txId);
+      showToast('Gasto excluído');
+      refreshAll();
+    });
+  } else {
+    // Gasto rápido regular — deleta da lista de gastos rápidos
+    Finance.deleteQuickExpense(id);
+    showToast('Gasto excluído');
+    renderQuickList();
+    renderOverview();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1419,10 +1466,12 @@ function _finishQuickSave(parsed, categoryId, categoryName) {
     // Usar o cartão escolhido no seletor do próprio modal de Gasto Rápido
     const card         = _getQuickCard();
     const purchaseDate = todayIso();
+    // isQuick: true — marca esta transação como originada pelo fluxo rápido,
+    // para que apareça também na lista de Gastos Rápidos (além da fatura).
     Finance.addTransaction({
       type:'expense', subtype:'once', description:parsed.description, amount:parsed.amount,
       purchaseDate, dueDate:purchaseDate, category: categoryName || 'Outros', categoryId: categoryId || null,
-      paymentMethod:'credito', cardId: card.id, paid:false,
+      paymentMethod:'credito', cardId: card.id, paid:false, isQuick: true,
     });
   } else {
     Finance.addQuickExpense(parsed.description, parsed.amount, parsed.paymentMethod, categoryName || 'Outros', categoryId || null);
@@ -1622,10 +1671,9 @@ function rptChangeMonth(delta) {
 }
 
 function refreshReports() {
-  if (_rptYear === null) {
-    _rptYear  = State.year;
-    _rptMonth = State.month;
-  }
+  // Mês global: Relatórios sempre acompanham o mês selecionado no Painel Financeiro.
+  _rptYear  = State.year;
+  _rptMonth = State.month;
   _rptData    = null;
   _rptOpenCat = null;
   renderReports();
