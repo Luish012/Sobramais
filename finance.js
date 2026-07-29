@@ -345,6 +345,7 @@ const Finance = {
       installmentTotal: Number(data.installmentTotal)||1,
       createdAt: new Date().toISOString(),
       isGenerated: !!data.isGenerated,
+      isQuick: !!data.isQuick,
     };
     const txs = Storage.getTransactions();
     txs.push(tx);
