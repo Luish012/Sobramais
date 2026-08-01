@@ -515,44 +515,55 @@ const Finance = {
     return { totalIncome, totalExpenses, totalReceived, totalPaid, totalPending, previsao };
   },
 
-  // ── SALDO DISPONÍVEL (apenas mês vigente) ──────────────────────────────────
+  // ── SALDO DISPONÍVEL (acumulado histórico — todos os meses) ───────────────
+  //
+  // CORREÇÃO: o saldo deve ser contínuo entre os meses.
+  // Em vez de filtrar apenas as transações do mês atual (getByCompetency),
+  // somamos TODAS as transações pagas de toda a história do usuário.
+  // Isso garante que o saldo de julho (R$ 611,00) seja carregado como
+  // saldo inicial de agosto, e assim sucessivamente.
   calcSaldoDisponivel(year, month) {
-    const txs = this.getByCompetency(year, month);
+    const allTxs = Storage.getTransactions();
 
-    const totalReceived = txs
+    // Soma todas as entradas recebidas (pagas) de todos os meses
+    const totalReceived = allTxs
       .filter(t => t.type === 'income' && t.paid)
       .reduce((s, t) => s + t.amount, 0);
 
-    const totalPaidNonCredit = txs
+    // Soma todas as despesas pagas não-crédito de todos os meses
+    const totalPaidNonCredit = allTxs
       .filter(t => t.type === 'expense' && t.paid && t.paymentMethod !== 'credito')
       .reduce((s, t) => s + t.amount, 0);
 
-    const invoicePaid = txs
+    // Soma todas as faturas de cartão pagas de todos os meses
+    const totalInvoicePaid = allTxs
       .filter(t => t.type === 'expense' && t.paid && t.paymentMethod === 'credito')
       .reduce((s, t) => s + t.amount, 0);
 
+    // Soma todos os Gastos Rápidos não-crédito de todos os meses
     const quickTotal = Storage.getQuickExpenses()
-      .filter(q => {
-        if (q.paymentMethod === 'credito') return false;
-        const d = new Date(q.date + 'T00:00:00');
-        return d.getFullYear() === year && d.getMonth() === month;
-      })
+      .filter(q => q.paymentMethod !== 'credito')
       .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
-    const goalProcessed = sumProcessedGoalContributions(year, month);
+    // Soma todos os aportes de metas já processados de todos os meses
+    const goalProcessed = getGoalsForCompetency().reduce((s, g) =>
+      s + g.history.filter(h => h.origin === 'scheduled')
+                    .reduce((s2, h) => s2 + h.amount, 0), 0);
 
-    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal - goalProcessed;
+    return totalReceived - totalPaidNonCredit - totalInvoicePaid - quickTotal - goalProcessed;
   },
 
   // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
+  //
+  // CORREÇÃO: para meses futuros, encadeia iterativamente a partir da previsão
+  // do mês atual, garantindo que o saldo acumulado seja propagado mês a mês.
+  // Elimina o bug em que meses futuros além do "próximo mês" recalculavam
+  // do zero ignorando o saldo acumulado.
   calcPrevisao(year, month) {
     const today = new Date();
     const todayYear = today.getFullYear(), todayMonth = today.getMonth();
     const isCurrentMonth = year === todayYear && month === todayMonth;
-
-    let nextY = todayYear, nextM = todayMonth + 1;
-    if (nextM > 11) { nextM = 0; nextY++; }
-    const isNextMonth = year === nextY && month === nextM;
+    const isFuture = year > todayYear || (year === todayYear && month > todayMonth);
 
     if (isCurrentMonth) {
       const txs  = this.getByCompetency(year, month);
@@ -564,35 +575,38 @@ const Finance = {
                                      .reduce((s, t) => s + t.amount, 0);
       const faturaPendente     = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod === 'credito')
                                      .reduce((s, t) => s + t.amount, 0);
-
-      const totalReceived = txs.filter(t => t.type === 'income' && t.paid).reduce((s, t) => s + t.amount, 0);
-      const quickNonCredit = Storage.getQuickExpenses()
-        .filter(q => {
-          if (q.paymentMethod === 'credito') return false;
-          const d = new Date(q.date + 'T00:00:00');
-          return d.getFullYear() === year && d.getMonth() === month;
-        })
-        .reduce((s, q) => s + (Number(q.amount) || 0), 0);
-
       const goalPendente = sumPendingGoalContributions(year, month);
-
-      if (totalReceived === 0 && quickNonCredit === 0) {
-        const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-        const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-        return inc - exp - goalPendente;
-      }
 
       return saldo + entradasPendentes - despesasPendentes - faturaPendente - goalPendente;
     }
 
-    if (isNextMonth) {
-      const prevPrevisao = this.calcPrevisao(todayYear, todayMonth);
+    if (isFuture) {
+      // Encadeia iterativamente a partir do mês atual sem recursão infinita.
+      // saldo inicial = previsão do mês atual (já inclui o histórico acumulado).
+      let result = this.calcPrevisao(todayYear, todayMonth);
+
+      let cy = todayYear, cm = todayMonth + 1;
+      if (cm > 11) { cm = 0; cy++; }
+
+      // Avança mês a mês até atingir o mês-alvo
+      while (cy !== year || cm !== month) {
+        const txs = this.getByCompetency(cy, cm);
+        const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+        const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+        result = result + inc - exp - sumPendingGoalContributions(cy, cm);
+        cm++;
+        if (cm > 11) { cm = 0; cy++; }
+      }
+
+      // Aplica o mês-alvo
       const txs = this.getByCompetency(year, month);
       const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
       const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-      return prevPrevisao + inc - exp - sumPendingGoalContributions(year, month);
+      return result + inc - exp - sumPendingGoalContributions(year, month);
     }
 
+    // Mês passado: exibe o saldo líquido realizado + pendente daquele mês
+    // (comportamento original preservado para visualização histórica)
     const txs = this.getByCompetency(year, month);
     const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
