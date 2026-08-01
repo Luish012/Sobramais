@@ -1124,12 +1124,10 @@ function resetTxForm() {
 
 function populateCategoryOptions(type) {
   const sel = document.getElementById('tx-category');
-  if (type === 'income') {
-    sel.innerHTML = INCOME_CATEGORIES.map(c => `<option value="${c}" data-name="${c}">${c}</option>`).join('');
-    return;
-  }
-  // Despesas usam as categorias personalizadas do usuário (Categorias Inteligentes)
-  const cats = Categories.active();
+  // Ambos os tipos agora usam categorias personalizadas filtradas por tipo
+  const cats = type === 'income'
+    ? Categories.activeByType('income')
+    : Categories.activeByType('expense');
   sel.innerHTML = cats.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join('');
 }
 
@@ -1137,17 +1135,24 @@ function populateCategoryOptions(type) {
 // tanto o novo vínculo (categoryId) quanto lançamentos antigos que só têm o
 // texto da categoria — nesse caso tenta casar pelo nome; se não encontrar,
 // injeta uma opção temporária para não perder o histórico.
+// Funciona igual para income e expense (ambos agora usam categoryId).
 function _preselectTxCategory(tx) {
   const sel = document.getElementById('tx-category');
   if (!sel) return;
-  if (tx.type === 'income') { sel.value = tx.category; return; }
+
+  // Tenta por categoryId primeiro
   let optionValue = tx.categoryId && [...sel.options].some(o => o.value === tx.categoryId)
     ? tx.categoryId
     : null;
+
+  // Fallback: casa pelo nome, respeitando o tipo da transação
   if (!optionValue && tx.category) {
-    const match = Categories.getByName(tx.category);
+    const match = Categories.getByNameAndType(tx.category, tx.type)
+      || Categories.getByName(tx.category);
     if (match && [...sel.options].some(o => o.value === match.id)) optionValue = match.id;
   }
+
+  // Fallback final: injeta opção temporária para não perder o histórico
   if (!optionValue && tx.category) {
     const opt = document.createElement('option');
     opt.value = '';
@@ -1156,6 +1161,7 @@ function _preselectTxCategory(tx) {
     sel.prepend(opt);
     optionValue = '';
   }
+
   sel.value = optionValue || '';
 }
 
@@ -1220,8 +1226,9 @@ function saveTxForm() {
   const dueDate   = document.getElementById('tx-duedate').value;
   const catSel    = document.getElementById('tx-category');
   const catOpt    = catSel.selectedOptions[0];
-  const catId     = _txType === 'expense' ? (catSel.value || null) : null;
-  const catName   = _txType === 'income' ? catSel.value : (catOpt?.dataset.name || '');
+  // Ambos os tipos agora usam categoryId (categorias personalizadas)
+  const catId     = catSel.value || null;
+  const catName   = catOpt?.dataset.name || '';
   const payment   = document.getElementById('tx-payment').value;
   const subtype   = document.getElementById('tx-subtype').value;
   const instTotal = parseInt(document.getElementById('tx-installments').value) || 1;
@@ -1242,9 +1249,9 @@ function saveTxForm() {
     installmentTotal: instTotal, paid,
   };
 
-  // Se o usuário trocou manualmente a categoria de uma despesa já existente,
-  // pergunta se deve ensinar o sistema para as próximas vezes (item 7 do roadmap).
-  if (State.editTxId && _txType === 'expense' && catId) {
+  // Se o usuário trocou manualmente a categoria de um lançamento existente,
+  // pergunta se deve ensinar o sistema para as próximas vezes.
+  if (State.editTxId && catId) {
     const oldTx = Storage.getTransactions().find(t => t.id === State.editTxId);
     if (oldTx && oldTx.categoryId !== catId) {
       _maybeAskToLearn(desc, catId);
@@ -1485,7 +1492,8 @@ function _finishQuickSave(parsed, categoryId, categoryName) {
 let _quickCatCb = null;
 function _openQuickCategoryPicker(onChoose) {
   _quickCatCb = onChoose;
-  const list = Categories.active();
+  // Gasto Rápido é sempre uma despesa — mostra somente categorias de saída
+  const list = Categories.activeByType('expense');
   const el = document.getElementById('quick-cat-list');
   el.innerHTML = list.map(c => `
     <button type="button" class="cat-chip" style="border-color:${esc(c.color)}" onclick="_chooseQuickCategory('${c.id}')">
@@ -1517,26 +1525,48 @@ const CATEGORY_ICON_CHOICES = ['🍔','🛒','⛽','🏠','💊','🎮','👕','
 const CATEGORY_COLOR_CHOICES = ['#f97316','#22c55e','#eab308','#0ea5e9','#ef4444','#a855f7','#ec4899','#64748b','#3b82f6','#84cc16','#6366f1','#0f766e','#f43f5e','#7c3aed','#059669','#78716c'];
 
 let _editCategoryId = null;
+let _categoryTab = 'expense'; // 'expense' | 'income' — aba ativa
 
 function openCategoriesScreen() {
   closeModal('account-modal');
+  _categoryTab = 'expense';
+  _updateCategoryTabUI();
   renderCategoriesList();
   openModal('categories-modal');
 }
 
+// Alterna entre aba Saídas / Entradas
+function switchCategoryTab(type) {
+  _categoryTab = type === 'income' ? 'income' : 'expense';
+  _updateCategoryTabUI();
+  renderCategoriesList();
+}
+
+function _updateCategoryTabUI() {
+  const expBtn = document.getElementById('cat-tab-expense');
+  const incBtn = document.getElementById('cat-tab-income');
+  if (expBtn) {
+    expBtn.className = 'btn btn-sm' + (_categoryTab === 'expense' ? ' btn-primary' : ' btn-outline');
+  }
+  if (incBtn) {
+    incBtn.className = 'btn btn-sm' + (_categoryTab === 'income' ? ' btn-primary' : ' btn-outline');
+  }
+}
+
 function renderCategoriesList() {
-  const list = Categories.list();
+  const list = Categories.listByType(_categoryTab);
   const el = document.getElementById('categories-list');
   if (!el) return;
   if (list.length === 0) {
-    el.innerHTML = emptyState('🏷️', 'Nenhuma categoria', 'Toque em "Nova Categoria" para criar a primeira.');
+    const label = _categoryTab === 'income' ? 'entrada' : 'saída';
+    el.innerHTML = emptyState('🏷️', 'Nenhuma categoria', `Toque em "Nova Categoria" para criar a primeira categoria de ${label}.`);
     return;
   }
   el.innerHTML = list.map((c, i) => `
     <div class="cat-row${c.active === false ? ' cat-row-inactive' : ''}">
       <div class="cat-row-order">
-        <button class="btn-icon" type="button" onclick="Categories.move('${c.id}',-1);renderCategoriesList()" ${i === 0 ? 'disabled' : ''}>▲</button>
-        <button class="btn-icon" type="button" onclick="Categories.move('${c.id}',1);renderCategoriesList()" ${i === list.length - 1 ? 'disabled' : ''}>▼</button>
+        <button class="btn-icon" type="button" onclick="Categories.moveInType('${c.id}',-1);renderCategoriesList()" ${i === 0 ? 'disabled' : ''}>▲</button>
+        <button class="btn-icon" type="button" onclick="Categories.moveInType('${c.id}',1);renderCategoriesList()" ${i === list.length - 1 ? 'disabled' : ''}>▼</button>
       </div>
       <div class="cat-row-swatch" style="background:${esc(c.color)}">${esc(c.icon)}</div>
       <div class="cat-row-info" onclick="openCategoryEdit('${c.id}')">
@@ -1549,7 +1579,8 @@ function renderCategoriesList() {
 
 function openNewCategory() {
   _editCategoryId = null;
-  document.getElementById('category-modal-title').textContent = 'Nova Categoria';
+  const typeLabel = _categoryTab === 'income' ? 'Entrada' : 'Saída';
+  document.getElementById('category-modal-title').textContent = `Nova Categoria de ${typeLabel}`;
   document.getElementById('category-name').value = '';
   document.getElementById('category-icon-input').value = '📦';
   document.getElementById('category-color-input').value = '#78716c';
@@ -1565,7 +1596,11 @@ function openCategoryEdit(id) {
   const cat = Categories.getById(id);
   if (!cat) return;
   _editCategoryId = id;
-  document.getElementById('category-modal-title').textContent = 'Editar Categoria';
+  // Garante que a aba reflita o tipo da categoria sendo editada
+  _categoryTab = (cat.type || 'expense');
+  _updateCategoryTabUI();
+  const typeLabel = _categoryTab === 'income' ? 'Entrada' : 'Saída';
+  document.getElementById('category-modal-title').textContent = `Editar Categoria de ${typeLabel}`;
   document.getElementById('category-name').value = cat.name;
   document.getElementById('category-icon-input').value = cat.icon;
   document.getElementById('category-color-input').value = cat.color;
@@ -1632,7 +1667,8 @@ function saveCategoryForm() {
     Categories.update(_editCategoryId, { name, icon, color, active, keywords: _categoryKeywordsDraft });
     showToast('Categoria atualizada', 'success');
   } else {
-    Categories.create({ name, icon, color, keywords: _categoryKeywordsDraft });
+    // type vem da aba ativa no momento da criação
+    Categories.create({ name, icon, color, keywords: _categoryKeywordsDraft, type: _categoryTab });
     showToast('Categoria criada', 'success');
   }
   closeModal('category-edit-modal');
@@ -2494,13 +2530,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-add-expense').addEventListener('click', () => openAddTx('expense'));
   document.getElementById('btn-add-income').addEventListener('click', () => openAddTx('income'));
 
-  // ── IA de categorias no formulário de lançamento (mesmo comportamento dos Gastos Rápidos) ──
+  // ── IA de categorias no formulário de lançamento (despesas e entradas) ──────
   document.getElementById('tx-desc')?.addEventListener('input', () => {
-    // Só para despesas — entradas usam categorias fixas sem IA
-    if (_txType !== 'expense') return;
     const desc = document.getElementById('tx-desc')?.value.trim();
     if (!desc) return;
-    const match = CatIntel.classify(desc);
+    // Classifica somente dentro do tipo do lançamento atual (expense ou income)
+    const match = CatIntel.classify(desc, _txType);
     if (!match) return;
     const sel = document.getElementById('tx-category');
     if (sel && [...sel.options].some(o => o.value === match.id)) sel.value = match.id;
