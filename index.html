@@ -1078,7 +1078,12 @@
       <button id="close-categories-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
-      <button id="btn-add-category" type="button" class="btn btn-primary form-btn-full" style="margin-bottom:0.85rem">+ Nova Categoria</button>
+      <!-- Navegação entre Saídas / Entradas -->
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
+        <button id="cat-tab-expense" type="button" class="btn btn-primary btn-sm" style="flex:1" onclick="switchCategoryTab('expense')">Saídas</button>
+        <button id="cat-tab-income"  type="button" class="btn btn-outline btn-sm"  style="flex:1" onclick="switchCategoryTab('income')">Entradas</button>
+      </div>
+      <button id="btn-add-category" type="button" class="btn btn-outline-primary form-btn-full" style="margin-bottom:0.85rem">+ Nova Categoria</button>
       <div id="categories-list"></div>
     </div>
   </div>
@@ -1116,7 +1121,7 @@
             <input id="category-keyword-input" class="form-input" type="text" placeholder="ex: mercado, ifood…" autocomplete="off" style="flex:1" />
             <button id="btn-add-category-keyword" type="button" class="btn btn-outline btn-sm">Adicionar</button>
           </div>
-          <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.35rem">Usadas para identificar automaticamente os gastos rápidos desta categoria.</div>
+          <div style="font-size:0.72rem;color:var(--muted-fg);margin-top:0.35rem">Usadas para identificar automaticamente os lançamentos desta categoria ao digitar a descrição.</div>
         </div>
         <div class="form-group" style="display:flex;align-items:center;gap:0.5rem">
           <input id="category-active" type="checkbox" checked />
