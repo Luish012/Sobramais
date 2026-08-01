@@ -7,6 +7,15 @@
 // ── NOVIDADES ──────────────────────────────────────────────────────────────
 // Ordem: mais recente primeiro. Cada item aparece como um card em "Novidades".
 const NEWS_DATA = [
+  {
+  version: "1.3.3",
+  title: "Melhorias nas categorias e correções",
+  changes: [
+    "Agora é possível criar, editar e excluir categorias de Entrada, assim como já era possível para categorias de Saída.",
+    "A categorização inteligente também foi implementada para lançamentos de Entrada, identificando automaticamente a categoria conforme a descrição.",
+    "Corrigida a continuidade do saldo entre os meses, mantendo automaticamente o saldo acumulado ao iniciar um novo mês."
+  ]
+}
 {
   version: "1.3.2",
   title: "Melhorias no painel financeiro",
