@@ -5,11 +5,10 @@
 // - Categorias 100% personalizáveis pelo usuário (sem categorias fixas no código)
 // - Motor de categorização local (sem IA externa, sem OpenAI, sem APIs)
 // - Aprendizado por usuário: associa descrição → categoria após escolha manual
+// - Suporte a type: 'expense' (saída) e 'income' (entrada)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Conjunto padrão criado apenas na primeira vez que o usuário não tem nenhuma
-// categoria (nova conta OU conta antiga migrada). Pode ser editado, renomeado,
-// ocultado ou excluído livremente — não é usado em nenhum outro lugar do código.
+// Conjunto padrão de categorias de SAÍDA — criado apenas uma vez
 const DEFAULT_CATEGORIES_SEED = [
   { name: 'Alimentação',   icon: '🍔', color: '#f97316', keywords: ['lanche','hamburguer','pizza','salgado','esfiha','pastel','padaria','restaurante','mcdonalds','burger king','habibs','subway','acai','ifood','comida','almoco','jantar','lanchonete'] },
   { name: 'Mercado',       icon: '🛒', color: '#22c55e', keywords: ['mercado','atacadao','assai','extra','carrefour','tenda','spani','supermercado','hortifruti','feira'] },
@@ -29,6 +28,19 @@ const DEFAULT_CATEGORIES_SEED = [
   { name: 'Outros',        icon: '📦', color: '#78716c', keywords: [] },
 ];
 
+// Conjunto padrão de categorias de ENTRADA — criado apenas uma vez
+const DEFAULT_INCOME_CATEGORIES_SEED = [
+  { name: 'Salário',             icon: '💼', color: '#22c55e', keywords: ['salario','vencimento','pagamento mensal','contracheque','folha','holerite'] },
+  { name: 'Freelance',           icon: '💻', color: '#3b82f6', keywords: ['freela','freelance','servico prestado','autonomo','trabalho extra'] },
+  { name: 'Comissão',            icon: '🤝', color: '#f97316', keywords: ['comissao','comissoes','bonus de venda','premiacao'] },
+  { name: 'Vendas',              icon: '🛍️', color: '#a855f7', keywords: ['venda','vendeu','mercado livre','olx','shopee','enjoei'] },
+  { name: 'Reembolso',           icon: '↩️', color: '#0ea5e9', keywords: ['reembolso','ressarcimento','devolucao','estorno','restituicao'] },
+  { name: 'Aluguel recebido',    icon: '🏠', color: '#eab308', keywords: ['aluguel recebido','locacao recebida','renda aluguel','inquilino'] },
+  { name: 'Investimentos',       icon: '📈', color: '#059669', keywords: ['rendimento','dividendo','juros','tesouro','cdb','fundo','corretora','renda fixa'] },
+  { name: 'Presente',            icon: '🎁', color: '#ec4899', keywords: ['presente recebido','doacao recebida','gift','mesada'] },
+  { name: 'Outros recebimentos', icon: '💰', color: '#78716c', keywords: [] },
+];
+
 // ─── Normalização de texto (sem libs externas) ───────────────────────────────
 function normalizeText(str) {
   return (str || '')
@@ -46,26 +58,49 @@ const Categories = {
   list() {
     return [...Storage.getCategories()].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   },
+
+  // Filtra por tipo ('expense' ou 'income')
+  listByType(type) {
+    return this.list().filter(c => (c.type || 'expense') === type);
+  },
+
   active() {
     return this.list().filter(c => c.active !== false);
   },
+
+  // Categorias ativas filtradas por tipo
+  activeByType(type) {
+    return this.listByType(type).filter(c => c.active !== false);
+  },
+
   getById(id) {
     if (!id) return null;
     return Storage.getCategories().find(c => c.id === id) || null;
   },
+
   getByName(name) {
     if (!name) return null;
     const norm = normalizeText(name);
     return Storage.getCategories().find(c => normalizeText(c.name) === norm) || null;
   },
 
-  create({ name, icon, color, keywords }) {
+  getByNameAndType(name, type) {
+    if (!name) return null;
+    const norm = normalizeText(name);
+    return Storage.getCategories().find(c =>
+      normalizeText(c.name) === norm && (c.type || 'expense') === type
+    ) || null;
+  },
+
+  // Inclui o campo `type` ('expense' | 'income'), padrão 'expense'
+  create({ name, icon, color, keywords, type }) {
     const list = Storage.getCategories();
     const cat = {
       id: genId(),
       name: (name || '').trim() || 'Nova categoria',
       icon: icon || '📦',
       color: color || '#78716c',
+      type: type === 'income' ? 'income' : 'expense',
       position: list.length,
       active: true,
       keywords: (keywords || []).map(k => k.trim()).filter(Boolean),
@@ -114,14 +149,34 @@ const Categories = {
     Storage.setCategories([...reordered, ...remaining]);
   },
 
-  move(id, dir) {
-    const list = this.list();
-    const idx = list.findIndex(c => c.id === id);
+  // Move dentro do mesmo tipo (expense ou income) — não cruza tipos
+  moveInType(id, dir) {
+    const all = Storage.getCategories();
+    const cat = all.find(c => c.id === id);
+    if (!cat) return;
+    const type = cat.type || 'expense';
+    // Lista ordenada apenas do mesmo tipo
+    const typed = all
+      .filter(c => (c.type || 'expense') === type)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    const idx = typed.findIndex(c => c.id === id);
     if (idx === -1) return;
-    const swapWith = idx + dir;
-    if (swapWith < 0 || swapWith >= list.length) return;
-    [list[idx], list[swapWith]] = [list[swapWith], list[idx]];
-    this.reorder(list.map(c => c.id));
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= typed.length) return;
+    // Troca as posições dos dois
+    const posA = typed[idx].position ?? 0;
+    const posB = typed[swapIdx].position ?? 0;
+    const updated = all.map(c => {
+      if (c.id === typed[idx].id)    return { ...c, position: posB, updatedAt: new Date().toISOString() };
+      if (c.id === typed[swapIdx].id) return { ...c, position: posA, updatedAt: new Date().toISOString() };
+      return c;
+    });
+    Storage.setCategories(updated);
+  },
+
+  // Mantém move original para compatibilidade (move no global)
+  move(id, dir) {
+    this.moveInType(id, dir);
   },
 
   addKeyword(id, keyword) {
@@ -141,22 +196,62 @@ const Categories = {
     this.update(id, { keywords: cat.keywords.filter(k => normalizeText(k) !== norm) });
   },
 
-  // Garante que todo usuário tenha ao menos o conjunto padrão de categorias.
-  // Roda uma única vez (quando a lista local está vazia) — tanto para contas
-  // novas (caso o trigger do banco não tenha rodado) quanto para contas antigas
-  // criadas antes desta funcionalidade existir.
+  // Garante que todo usuário tenha categorias de saída e de entrada.
+  // Migração transparente: categorias sem type recebem type='expense'.
+  // Usuários antigos recebem categorias de entrada sem perder nada.
   ensureDefaults() {
-    if (Storage.getCategories().length > 0) return;
-    const seeded = DEFAULT_CATEGORIES_SEED.map((c, i) => ({
-      id: genId(),
-      name: c.name, icon: c.icon, color: c.color,
-      keywords: [...c.keywords],
-      position: i,
-      active: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }));
-    Storage.setCategories(seeded);
+    const all = Storage.getCategories();
+
+    // ── Migração: marcar categorias antigas como 'expense' ──────────────────
+    let needsMigration = false;
+    const migrated = all.map(c => {
+      if (!c.type) { needsMigration = true; return { ...c, type: 'expense' }; }
+      return c;
+    });
+    if (needsMigration) {
+      Storage.setCategories(migrated);
+    }
+
+    const current = Storage.getCategories();
+    const hasExpense = current.some(c => (c.type || 'expense') === 'expense');
+    const hasIncome  = current.some(c => c.type === 'income');
+
+    const toAdd = [];
+
+    // Seed de saída (somente se não houver nenhuma)
+    if (!hasExpense) {
+      const expenseSeeded = DEFAULT_CATEGORIES_SEED.map((c, i) => ({
+        id: genId(),
+        name: c.name, icon: c.icon, color: c.color,
+        keywords: [...c.keywords],
+        type: 'expense',
+        position: i,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+      toAdd.push(...expenseSeeded);
+    }
+
+    // Seed de entrada (somente se não houver nenhuma — inclusive para usuários antigos)
+    if (!hasIncome) {
+      const startPos = current.length + toAdd.length;
+      const incomeSeeded = DEFAULT_INCOME_CATEGORIES_SEED.map((c, i) => ({
+        id: genId(),
+        name: c.name, icon: c.icon, color: c.color,
+        keywords: [...c.keywords],
+        type: 'income',
+        position: startPos + i,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+      toAdd.push(...incomeSeeded);
+    }
+
+    if (toAdd.length > 0) {
+      Storage.setCategories([...current, ...toAdd]);
+    }
   },
 };
 
@@ -171,23 +266,27 @@ const CatIntel = {
   },
 
   // Consulta o aprendizado do usuário para esta descrição exata.
-  findLearned(description) {
+  // Se type for fornecido, só retorna se a categoria aprendida for do mesmo tipo.
+  findLearned(description, type) {
     const key = this.learnKey(description);
     if (!key) return null;
     const entry = Storage.getCategoryLearning().find(l => l.matchKey === key);
     if (!entry) return null;
     const cat = Categories.getById(entry.categoryId);
-    return cat && cat.active !== false ? cat : null;
+    if (!cat || cat.active === false) return null;
+    if (type && (cat.type || 'expense') !== type) return null;
+    return cat;
   },
 
-  // Pontua cada categoria ativa por correspondência de palavras-chave e
-  // retorna a categoria vencedora (ou null se nada bateu).
-  matchByKeywords(description) {
+  // Pontua cada categoria ativa (do tipo especificado, se informado) por
+  // correspondência de palavras-chave e retorna a categoria vencedora.
+  matchByKeywords(description, type) {
     const norm = normalizeText(description);
     if (!norm) return null;
+    const cats = type ? Categories.activeByType(type) : Categories.active();
     let best = null;
     let bestScore = 0;
-    for (const cat of Categories.active()) {
+    for (const cat of cats) {
       let score = 0;
       for (const kw of (cat.keywords || [])) {
         const kwNorm = normalizeText(kw);
@@ -199,8 +298,9 @@ const CatIntel = {
   },
 
   // Classificação principal: aprendizado exato > palavras-chave > desconhecido.
-  classify(description) {
-    return this.findLearned(description) || this.matchByKeywords(description);
+  // type: 'expense' | 'income' | undefined (qualquer)
+  classify(description, type) {
+    return this.findLearned(description, type) || this.matchByKeywords(description, type);
   },
 
   // Salva/atualiza o aprendizado do usuário para esta descrição.
