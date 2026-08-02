@@ -478,28 +478,106 @@ function renderOverviewCashFlow() {
 
 // ─── OVERVIEW TAB ────────────────────────────────────────────────────────────
 function renderOverview() {
-  const sum     = Finance.calcSummary(State.year, State.month);
-  const previsao = Finance.calcPrevisao(State.year, State.month);
+  const sum      = Finance.calcSummary(State.year, State.month);
   const reminders = Finance.getReminders();
 
-  const today = new Date();
-  const isCurrentMonth = State.year === today.getFullYear() && State.month === today.getMonth();
-  const saldoSection = document.getElementById('saldo-section');
-  if (isCurrentMonth && saldoSection) {
-    const saldo = Finance.calcSaldoDisponivel(State.year, State.month);
-    const saldoEl = document.getElementById('saldo-amount');
-    saldoEl.textContent = fmtCurrency(saldo);
-    saldoEl.className = 'balance-amount ' + (saldo >= 0 ? 'positive' : 'negative');
-    saldoSection.style.display = '';
-  } else if (saldoSection) {
-    saldoSection.style.display = 'none';
-  }
+  const today      = new Date();
+  const todayYear  = today.getFullYear();
+  const todayMonth = today.getMonth();
+  const todayKey   = todayYear * 12 + todayMonth;
+  const targetKey  = State.year * 12 + State.month;
 
-  const balEl = document.getElementById('balance-amount');
-  balEl.textContent = fmtCurrency(previsao);
-  balEl.className = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
-  document.getElementById('balance-sub').textContent =
-    'Entradas ' + fmtCurrency(sum.totalIncome) + ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+  const isPast    = targetKey < todayKey;
+  const isCurrent = targetKey === todayKey;
+  const isFuture  = targetKey > todayKey;
+
+  const saldoSection = document.getElementById('saldo-section');
+  const balLabelEl   = saldoSection ? saldoSection.previousElementSibling : null;
+
+  // ── Saldo do mês anterior ────────────────────────────────────────────────
+  // Injetado dinamicamente na summary-grid como 5º card (oculto se zero e mês atual)
+  _renderSaldoAnteriorCard(State.year, State.month);
+
+  // ── Três ramos: passado / vigente / futuro ───────────────────────────────
+  if (isPast) {
+    // Mês encerrado: saldo disponível = saldo final realizado
+    const saldoFinal = Finance.calcSaldoDisponivel(State.year, State.month);
+
+    // Ocultar o card "Saldo Disponível" que só faz sentido no mês vigente
+    if (saldoSection) saldoSection.style.display = 'none';
+
+    // Reutilizar a área principal para exibir "Mês encerrado" + saldo final
+    const balLbl = document.querySelector('#balance-amount')?.closest('.balance-card')
+      ?.querySelector('.balance-label');
+    if (balLbl) balLbl.textContent = 'Mês encerrado';
+
+    const balEl = document.getElementById('balance-amount');
+    balEl.textContent = fmtCurrency(saldoFinal);
+    balEl.className   = 'balance-amount ' + (saldoFinal >= 0 ? 'positive' : 'negative');
+    document.getElementById('balance-sub').textContent =
+      'Saldo final · Entradas ' + fmtCurrency(sum.totalIncome) +
+      ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+
+    console.log('[FinanceAudit] renderOverview isPast year=' + State.year +
+      ' month=' + (State.month + 1) + ' saldoFinal=' + saldoFinal.toFixed(2));
+
+  } else if (isCurrent) {
+    // Mês vigente: mostrar "Saldo Disponível" + "Previsão do Mês"
+    const saldo    = Finance.calcSaldoDisponivel(State.year, State.month);
+    const previsao = Finance.calcPrevisao(State.year, State.month);
+
+    if (saldoSection) {
+      const saldoEl = document.getElementById('saldo-amount');
+      if (saldoEl) {
+        saldoEl.textContent = fmtCurrency(saldo);
+        saldoEl.className   = 'balance-amount ' + (saldo >= 0 ? 'positive' : 'negative');
+      }
+      // Garantir label correto
+      const lbl = saldoSection.querySelector('.balance-label');
+      if (lbl) lbl.textContent = 'Saldo Disponível';
+      saldoSection.style.display = '';
+    }
+
+    const balLbl = document.querySelector('#balance-amount')?.closest('.balance-card')
+      ?.querySelector('.balance-label:last-of-type') ||
+      document.getElementById('balance-amount')?.parentElement?.querySelector('.balance-label');
+    // balance-label before balance-amount (second .balance-label inside card)
+    _setBalanceCardMainLabel('Previsão do Mês');
+
+    const balEl = document.getElementById('balance-amount');
+    balEl.textContent = fmtCurrency(previsao);
+    balEl.className   = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
+    document.getElementById('balance-sub').textContent =
+      'Entradas ' + fmtCurrency(sum.totalIncome) + ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+
+    console.log('[FinanceAudit] renderOverview isCurrent year=' + State.year +
+      ' month=' + (State.month + 1) +
+      ' saldoDisponivel=' + saldo.toFixed(2) +
+      ' previsao=' + previsao.toFixed(2));
+
+  } else {
+    // Mês futuro: saldo inicial previsto + previsão encadeada
+    const saldoInicial = Finance.calcSaldoDisponivel(State.year, State.month);
+    const previsao     = Finance.calcPrevisao(State.year, State.month);
+
+    // Ocultar card de Saldo Disponível (não há realizado futuro)
+    if (saldoSection) saldoSection.style.display = 'none';
+
+    _setBalanceCardMainLabel('Previsão');
+
+    const balEl = document.getElementById('balance-amount');
+    balEl.textContent = fmtCurrency(previsao);
+    balEl.className   = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
+    document.getElementById('balance-sub').textContent =
+      'Saldo inicial previsto ' + fmtCurrency(saldoInicial) +
+      ' · Entradas ' + fmtCurrency(sum.totalIncome) +
+      ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+
+    console.log('[FinanceAudit] renderOverview isFuture year=' + State.year +
+      ' month=' + (State.month + 1) +
+      ' saldoInicial=' + saldoInicial.toFixed(2) +
+      ' previsao=' + previsao.toFixed(2));
+  }
 
   document.getElementById('sum-income').textContent   = fmtCurrency(sum.totalIncome);
   document.getElementById('sum-expenses').textContent = fmtCurrency(sum.totalExpenses);
@@ -525,6 +603,51 @@ function renderOverview() {
   }
 
   renderQuickList();
+}
+
+// ── Helper: define o label principal do balance-card (a tag .balance-label
+//    imediatamente antes de #balance-amount).
+function _setBalanceCardMainLabel(text) {
+  const balEl = document.getElementById('balance-amount');
+  if (!balEl) return;
+  // Percorrer nós anteriores para achar o .balance-label mais próximo
+  let node = balEl.previousElementSibling;
+  while (node) {
+    if (node.classList && node.classList.contains('balance-label')) {
+      node.textContent = text;
+      return;
+    }
+    node = node.previousElementSibling;
+  }
+}
+
+// ── Helper: injeta (ou atualiza) o card "Saldo do mês anterior" na summary-grid.
+function _renderSaldoAnteriorCard(year, month) {
+  const grid = document.querySelector('.summary-grid');
+  if (!grid) return;
+
+  const saldoAnterior = Finance.getMonthOpeningBalance(year, month);
+
+  let card = document.getElementById('sum-opening-balance-card');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'sum-opening-balance-card';
+    card.className = 'summary-card';
+    card.innerHTML = `<div class="summary-card-label">Mês anterior</div>
+      <div id="sum-opening-balance" class="summary-card-value"></div>`;
+    grid.appendChild(card);
+  }
+
+  const valEl = document.getElementById('sum-opening-balance');
+  if (valEl) {
+    valEl.textContent = fmtCurrency(saldoAnterior);
+    valEl.className   = 'summary-card-value ' +
+      (saldoAnterior >= 0 ? 'positive' : 'destructive');
+  }
+
+  // Ocultar somente se for o primeiro mês registrado e o saldo for exatamente zero
+  // (sem histórico anterior). Sempre mostra para meses seguintes.
+  card.style.display = '';
 }
 
 function renderQuickList() {
@@ -1259,7 +1382,40 @@ function saveTxForm() {
   }
 
   if (State.editTxId) {
+    const oldTxForEdit = Storage.getTransactions().find(t => t.id === State.editTxId);
     Finance.updateTransaction(State.editTxId, base);
+
+    // ── Rebuild da série de parcelas quando a quantidade muda ────────────────
+    // Detectar: é um parcelamento editado E o installmentTotal mudou?
+    if (
+      oldTxForEdit &&
+      (oldTxForEdit.subtype === 'installment' || subtype === 'installment') &&
+      oldTxForEdit.groupId
+    ) {
+      const oldTotal = Number(oldTxForEdit.installmentTotal) || 1;
+      const newTotal = instTotal;
+      if (newTotal !== oldTotal) {
+        console.log('[InstallmentAudit] Usuário alterou parcelas: ' + oldTotal + ' → ' + newTotal);
+        const result = Finance.rebuildInstallmentSeries(oldTxForEdit.groupId, newTotal);
+        if (!result.ok) {
+          showToast('Não foi possível alterar as parcelas: ' + result.message, 'error');
+          // Reverter o installmentTotal para o valor anterior na transação editada
+          Finance.updateTransaction(State.editTxId, { installmentTotal: oldTotal });
+          closeModal('tx-modal');
+          refreshAll();
+          return;
+        }
+        showToast(
+          'Parcelas atualizadas: ' + oldTotal + ' → ' + newTotal +
+          (result.created.length > 0 ? ' (' + result.created.length + ' criada(s))' : ''),
+          'success'
+        );
+        closeModal('tx-modal');
+        refreshAll();
+        return;
+      }
+    }
+
     showToast('Lançamento atualizado', 'success');
   } else if (subtype === 'installment' && instTotal > 1) {
     const groupId   = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
