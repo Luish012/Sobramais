@@ -1160,19 +1160,15 @@ function resetTxForm() {
 
 function populateCategoryOptions(type) {
   const sel = document.getElementById('tx-category');
-  if (type === 'income') {
-    // Prioriza categorias de entrada do usuário; fallback para lista fixa legada
-    const incCats = Categories.active().filter(c => c.type === 'income');
-    if (incCats.length > 0) {
-      sel.innerHTML = incCats.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join('');
-    } else {
-      sel.innerHTML = INCOME_CATEGORIES.map(c => `<option value="${c}" data-name="${c}">${c}</option>`).join('');
-    }
+  // Fonte única: categorias ativas do usuário no Supabase, filtradas pelo tipo
+  // do lançamento. Sem listas fixas — se o usuário não tiver nenhuma categoria
+  // daquele tipo ainda, o select fica vazio (não inventamos opções).
+  const cats = Categories.activeByType(type === 'income' ? 'income' : 'expense');
+  if (cats.length === 0) {
+    sel.innerHTML = `<option value="" disabled selected>Nenhuma categoria — crie em Minha Conta › Categorias</option>`;
     return;
   }
-  // Despesas: somente categorias de saída (type !== 'income')
-  const expCats = Categories.active().filter(c => c.type !== 'income');
-  sel.innerHTML = expCats.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join('');
+  sel.innerHTML = cats.map(c => `<option value="${c.id}" data-name="${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join('');
 }
 
 // Pré-seleciona a categoria de uma transação existente no <select>. Aceita
@@ -1535,7 +1531,7 @@ function _finishQuickSave(parsed, categoryId, categoryName) {
 let _quickCatCb = null;
 function _openQuickCategoryPicker(onChoose) {
   _quickCatCb = onChoose;
-  const list = Categories.active().filter(c => c.type !== 'income'); // somente saída
+  const list = Categories.activeByType('expense'); // Gastos Rápidos são sempre despesa
   const el = document.getElementById('quick-cat-list');
   el.innerHTML = list.map(c => `
     <button type="button" class="cat-chip" style="border-color:${esc(c.color)}" onclick="_chooseQuickCategory('${c.id}')">
@@ -1567,19 +1563,38 @@ const CATEGORY_ICON_CHOICES = ['🍔','🛒','⛽','🏠','💊','🎮','👕','
 const CATEGORY_COLOR_CHOICES = ['#f97316','#22c55e','#eab308','#0ea5e9','#ef4444','#a855f7','#ec4899','#64748b','#3b82f6','#84cc16','#6366f1','#0f766e','#f43f5e','#7c3aed','#059669','#78716c'];
 
 let _editCategoryId = null;
+// Aba ativa da tela de gerenciamento de categorias — Saídas abre por padrão.
+let _categoriesActiveTab = 'expense';
 
 function openCategoriesScreen() {
   closeModal('account-modal');
+  _categoriesActiveTab = 'expense';
+  _renderCategoryTabs();
   renderCategoriesList();
   openModal('categories-modal');
 }
 
+function setCategoriesTab(type) {
+  _categoriesActiveTab = type === 'income' ? 'income' : 'expense';
+  _renderCategoryTabs();
+  renderCategoriesList();
+}
+
+function _renderCategoryTabs() {
+  document.querySelectorAll('[data-cattab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cattab === _categoriesActiveTab);
+  });
+}
+
 function renderCategoriesList() {
-  const list = Categories.list();
+  // Cada aba mostra somente as categorias do seu próprio tipo — nunca reunidas
+  // numa lista única.
+  const list = Categories.list().filter(c => c.type === _categoriesActiveTab);
   const el = document.getElementById('categories-list');
   if (!el) return;
   if (list.length === 0) {
-    el.innerHTML = emptyState('🏷️', 'Nenhuma categoria', 'Toque em "Nova Categoria" para criar a primeira.');
+    const label = _categoriesActiveTab === 'income' ? 'entrada' : 'saída';
+    el.innerHTML = emptyState('🏷️', `Nenhuma categoria de ${label}`, 'Toque em "Nova Categoria" para criar a primeira.');
     return;
   }
   el.innerHTML = list.map((c, i) => `
@@ -1591,16 +1606,24 @@ function renderCategoriesList() {
       <div class="cat-row-swatch" style="background:${esc(c.color)}">${esc(c.icon)}</div>
       <div class="cat-row-info" onclick="openCategoryEdit('${c.id}')">
         <div class="cat-row-name">${esc(c.name)}</div>
-        <div class="cat-row-meta">${c.keywords.length} palavra(s)-chave${c.active === false ? ' · oculta' : ''} · ${c.type === 'income' ? 'Entrada' : 'Saída'}</div>
+        <div class="cat-row-meta">${c.keywords.length} palavra(s)-chave${c.active === false ? ' · oculta' : ''}</div>
       </div>
       <button class="btn-icon" type="button" title="Editar" onclick="openCategoryEdit('${c.id}')">✏</button>
     </div>`).join('');
 }
 
+function _setCategoryTypeBadge(type) {
+  const badge = document.getElementById('category-type-badge');
+  if (badge) badge.textContent = type === 'income' ? 'Categoria de entrada' : 'Categoria de saída';
+}
+
 function openNewCategory() {
   _editCategoryId = null;
+  // A aba já define o tipo — não perguntamos de novo ao usuário.
+  const type = _categoriesActiveTab;
   document.getElementById('category-modal-title').textContent = 'Nova Categoria';
-  document.getElementById('category-type').value = 'expense';
+  document.getElementById('category-type').value = type;
+  _setCategoryTypeBadge(type);
   document.getElementById('category-name').value = '';
   document.getElementById('category-icon-input').value = '📦';
   document.getElementById('category-color-input').value = '#78716c';
@@ -1618,6 +1641,7 @@ function openCategoryEdit(id) {
   _editCategoryId = id;
   document.getElementById('category-modal-title').textContent = 'Editar Categoria';
   document.getElementById('category-type').value = cat.type === 'income' ? 'income' : 'expense';
+  _setCategoryTypeBadge(cat.type);
   document.getElementById('category-name').value = cat.name;
   document.getElementById('category-icon-input').value = cat.icon;
   document.getElementById('category-color-input').value = cat.color;
@@ -2553,7 +2577,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (_txType !== 'expense') return;
     const desc = document.getElementById('tx-desc')?.value.trim();
     if (!desc) return;
-    const match = CatIntel.classify(desc);
+    const match = CatIntel.classify(desc, 'expense');
     if (!match) return;
     const sel = document.getElementById('tx-category');
     if (sel && [...sel.options].some(o => o.value === match.id)) sel.value = match.id;
@@ -2633,6 +2657,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-open-categories')?.addEventListener('click', openCategoriesScreen);
   document.getElementById('close-categories-modal')?.addEventListener('click', () => closeModal('categories-modal'));
   document.getElementById('btn-add-category')?.addEventListener('click', openNewCategory);
+  document.querySelectorAll('[data-cattab]').forEach(btn =>
+    btn.addEventListener('click', () => setCategoriesTab(btn.dataset.cattab)));
   document.getElementById('close-category-edit-modal')?.addEventListener('click', () => closeModal('category-edit-modal'));
   document.getElementById('category-save-btn')?.addEventListener('click', saveCategoryForm);
   document.getElementById('btn-delete-category')?.addEventListener('click', deleteCategoryForm);
