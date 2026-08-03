@@ -23,10 +23,15 @@ function getInvoiceForPurchase(purchaseDateStr, card) {
   const pMonth = d.getMonth();
   const pYear  = d.getFullYear();
 
-  // compras até o fechamento → fatura do próximo mês
-  // compras depois do fechamento → fatura do mês seguinte ao próximo
+  // Dia efetivo de fechamento: se o mês tem menos dias que o fechamento configurado
+  // (ex.: fechamento dia 31 em fevereiro → usa o último dia válido do mês).
+  const daysInPurchaseMonth = new Date(pYear, pMonth + 1, 0).getDate();
+  const effectiveClosingDay = Math.min(closingDay, daysInPurchaseMonth);
+
+  // No próprio dia do fechamento (ou depois) → compra vai para a PRÓXIMA fatura
+  // Antes do fechamento → fatura do mês seguinte normal
   let invMonth = pMonth + 1;
-  if (day > closingDay) invMonth = pMonth + 2;
+  if (day >= effectiveClosingDay) invMonth = pMonth + 2;
 
   let invYear = pYear;
   if (invMonth > 11) { invYear += Math.floor(invMonth / 12); invMonth = invMonth % 12; }
@@ -515,55 +520,44 @@ const Finance = {
     return { totalIncome, totalExpenses, totalReceived, totalPaid, totalPending, previsao };
   },
 
-  // ── SALDO DISPONÍVEL (acumulado histórico — todos os meses) ───────────────
-  //
-  // CORREÇÃO: o saldo deve ser contínuo entre os meses.
-  // Em vez de filtrar apenas as transações do mês atual (getByCompetency),
-  // somamos TODAS as transações pagas de toda a história do usuário.
-  // Isso garante que o saldo de julho (R$ 611,00) seja carregado como
-  // saldo inicial de agosto, e assim sucessivamente.
+  // ── SALDO DISPONÍVEL (apenas mês vigente) ──────────────────────────────────
   calcSaldoDisponivel(year, month) {
-    const allTxs = Storage.getTransactions();
+    const txs = this.getByCompetency(year, month);
 
-    // Soma todas as entradas recebidas (pagas) de todos os meses
-    const totalReceived = allTxs
+    const totalReceived = txs
       .filter(t => t.type === 'income' && t.paid)
       .reduce((s, t) => s + t.amount, 0);
 
-    // Soma todas as despesas pagas não-crédito de todos os meses
-    const totalPaidNonCredit = allTxs
+    const totalPaidNonCredit = txs
       .filter(t => t.type === 'expense' && t.paid && t.paymentMethod !== 'credito')
       .reduce((s, t) => s + t.amount, 0);
 
-    // Soma todas as faturas de cartão pagas de todos os meses
-    const totalInvoicePaid = allTxs
+    const invoicePaid = txs
       .filter(t => t.type === 'expense' && t.paid && t.paymentMethod === 'credito')
       .reduce((s, t) => s + t.amount, 0);
 
-    // Soma todos os Gastos Rápidos não-crédito de todos os meses
     const quickTotal = Storage.getQuickExpenses()
-      .filter(q => q.paymentMethod !== 'credito')
+      .filter(q => {
+        if (q.paymentMethod === 'credito') return false;
+        const d = new Date(q.date + 'T00:00:00');
+        return d.getFullYear() === year && d.getMonth() === month;
+      })
       .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
-    // Soma todos os aportes de metas já processados de todos os meses
-    const goalProcessed = getGoalsForCompetency().reduce((s, g) =>
-      s + g.history.filter(h => h.origin === 'scheduled')
-                    .reduce((s2, h) => s2 + h.amount, 0), 0);
+    const goalProcessed = sumProcessedGoalContributions(year, month);
 
-    return totalReceived - totalPaidNonCredit - totalInvoicePaid - quickTotal - goalProcessed;
+    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal - goalProcessed;
   },
 
   // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
-  //
-  // CORREÇÃO: para meses futuros, encadeia iterativamente a partir da previsão
-  // do mês atual, garantindo que o saldo acumulado seja propagado mês a mês.
-  // Elimina o bug em que meses futuros além do "próximo mês" recalculavam
-  // do zero ignorando o saldo acumulado.
   calcPrevisao(year, month) {
     const today = new Date();
     const todayYear = today.getFullYear(), todayMonth = today.getMonth();
     const isCurrentMonth = year === todayYear && month === todayMonth;
-    const isFuture = year > todayYear || (year === todayYear && month > todayMonth);
+
+    let nextY = todayYear, nextM = todayMonth + 1;
+    if (nextM > 11) { nextM = 0; nextY++; }
+    const isNextMonth = year === nextY && month === nextM;
 
     if (isCurrentMonth) {
       const txs  = this.getByCompetency(year, month);
@@ -575,38 +569,35 @@ const Finance = {
                                      .reduce((s, t) => s + t.amount, 0);
       const faturaPendente     = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod === 'credito')
                                      .reduce((s, t) => s + t.amount, 0);
+
+      const totalReceived = txs.filter(t => t.type === 'income' && t.paid).reduce((s, t) => s + t.amount, 0);
+      const quickNonCredit = Storage.getQuickExpenses()
+        .filter(q => {
+          if (q.paymentMethod === 'credito') return false;
+          const d = new Date(q.date + 'T00:00:00');
+          return d.getFullYear() === year && d.getMonth() === month;
+        })
+        .reduce((s, q) => s + (Number(q.amount) || 0), 0);
+
       const goalPendente = sumPendingGoalContributions(year, month);
+
+      if (totalReceived === 0 && quickNonCredit === 0) {
+        const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+        const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+        return inc - exp - goalPendente;
+      }
 
       return saldo + entradasPendentes - despesasPendentes - faturaPendente - goalPendente;
     }
 
-    if (isFuture) {
-      // Encadeia iterativamente a partir do mês atual sem recursão infinita.
-      // saldo inicial = previsão do mês atual (já inclui o histórico acumulado).
-      let result = this.calcPrevisao(todayYear, todayMonth);
-
-      let cy = todayYear, cm = todayMonth + 1;
-      if (cm > 11) { cm = 0; cy++; }
-
-      // Avança mês a mês até atingir o mês-alvo
-      while (cy !== year || cm !== month) {
-        const txs = this.getByCompetency(cy, cm);
-        const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-        const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-        result = result + inc - exp - sumPendingGoalContributions(cy, cm);
-        cm++;
-        if (cm > 11) { cm = 0; cy++; }
-      }
-
-      // Aplica o mês-alvo
+    if (isNextMonth) {
+      const prevPrevisao = this.calcPrevisao(todayYear, todayMonth);
       const txs = this.getByCompetency(year, month);
       const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
       const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-      return result + inc - exp - sumPendingGoalContributions(year, month);
+      return prevPrevisao + inc - exp - sumPendingGoalContributions(year, month);
     }
 
-    // Mês passado: exibe o saldo líquido realizado + pendente daquele mês
-    // (comportamento original preservado para visualização histórica)
     const txs = this.getByCompetency(year, month);
     const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -769,6 +760,47 @@ const Finance = {
       finalBalance: balance,
       hasNegativePeriod: minBalance < 0,
     };
+  },
+
+  // ── SALDO FINAL MÊS ENCERRADO ──────────────────────────────────────────────
+  // Calcula o saldo consolidado de um mês já encerrado sem usar a rotina de
+  // previsão. Retorna saldoFinal, saldoMesAnterior e os componentes realizados.
+  calcSaldoFinalMesEncerrado(year, month) {
+    const txs = this.getByCompetency(year, month);
+    const entradasRealizadas = txs.filter(t => t.type === 'income' && t.paid)
+      .reduce((s, t) => s + t.amount, 0);
+    const saidasRealizadas = txs.filter(t => t.type === 'expense' && t.paid && t.paymentMethod !== 'credito')
+      .reduce((s, t) => s + t.amount, 0);
+    const faturasPagas = txs.filter(t => t.type === 'expense' && t.paid && t.paymentMethod === 'credito')
+      .reduce((s, t) => s + t.amount, 0);
+    const aportesRealizados = sumProcessedGoalContributions(year, month);
+
+    let prevYear = year, prevMonth = month - 1;
+    if (prevMonth < 0) { prevMonth = 11; prevYear--; }
+    const saldoMesAnterior = this._calcSaldoAnteriorEncerrado(prevYear, prevMonth, 0, 24);
+
+    const saldoFinal = saldoMesAnterior + entradasRealizadas - saidasRealizadas - faturasPagas - aportesRealizados;
+    return { saldoFinal, saldoMesAnterior, entradasRealizadas, saidasRealizadas, faturasPagas, aportesRealizados };
+  },
+
+  // Auxiliar recursivo: saldo acumulado até o mês informado (máx. maxDepth níveis).
+  _calcSaldoAnteriorEncerrado(year, month, depth, maxDepth) {
+    if (depth >= maxDepth) return 0;
+    const txs = this.getByCompetency(year, month);
+    // Mês sem lançamentos: avança para o anterior em busca de dados relevantes
+    if (txs.length === 0) {
+      let py = year, pm = month - 1;
+      if (pm < 0) { pm = 11; py--; }
+      return this._calcSaldoAnteriorEncerrado(py, pm, depth + 1, maxDepth);
+    }
+    const entradas = txs.filter(t => t.type === 'income' && t.paid).reduce((s, t) => s + t.amount, 0);
+    const saidas   = txs.filter(t => t.type === 'expense' && t.paid && t.paymentMethod !== 'credito').reduce((s, t) => s + t.amount, 0);
+    const faturas  = txs.filter(t => t.type === 'expense' && t.paid && t.paymentMethod === 'credito').reduce((s, t) => s + t.amount, 0);
+    const aportes  = sumProcessedGoalContributions(year, month);
+    let py = year, pm = month - 1;
+    if (pm < 0) { pm = 11; py--; }
+    const anterior = this._calcSaldoAnteriorEncerrado(py, pm, depth + 1, maxDepth);
+    return anterior + entradas - saidas - faturas - aportes;
   },
 
   // ── GOALS (Objetivos com Poupança Programada) ───────────────────────────────
