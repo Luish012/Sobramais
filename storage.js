@@ -202,16 +202,24 @@ const Storage = {
 
     // Categorias personalizadas + aprendizado — isolados: tabelas podem não
     // existir ainda se a migração desta etapa não foi executada no Supabase.
+    // categoriesLoadedOk só fica true quando a consulta ao Supabase realmente
+    // teve sucesso — usado abaixo para decidir se os padrões podem ser criados.
+    // Erro de rede/consulta NUNCA deve ser interpretado como "usuário sem
+    // categorias" (evita recriar padrões e sobrescrever dados existentes).
+    let categoriesLoadedOk = false;
     try {
       const { data: catRows, error: catErr } = await db
         .from('categories').select('*').eq('user_id', userId)
         .order('position', { ascending: true });
       if (!catErr && catRows) {
+        categoriesLoadedOk = true;
         this._set('CATEGORIES', catRows.map(r => ({
           id: r.id, name: r.name, icon: r.icon, color: r.color,
           keywords: Array.isArray(r.keywords) ? r.keywords : [],
           position: r.position || 0,
           active: r.active !== false,
+          // Categorias antigas sem tipo definido são tratadas como despesa
+          // (migração segura); categorias já marcadas como 'income' permanecem.
           type: r.type === 'income' ? 'income' : 'expense',
           createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
         })));
@@ -233,9 +241,15 @@ const Storage = {
       console.warn('[loadFromCloud] category_learning:', e.message || e);
     }
 
-    // Contas antigas (criadas antes desta funcionalidade) não têm categorias —
-    // cria o conjunto padrão automaticamente, uma única vez.
-    try { Categories.ensureDefaults(); } catch (e) { console.warn('[loadFromCloud] ensureDefaults:', e.message || e); }
+    // Contas antigas (criadas antes desta funcionalidade) ou contas novas sem
+    // nenhuma categoria ainda recebem o conjunto padrão automaticamente, uma
+    // única vez — mas SOMENTE quando a consulta ao Supabase teve sucesso.
+    // Se a consulta falhou, não sabemos se o usuário realmente não tem
+    // categorias ou se foi apenas um erro de rede — nesse caso não criamos
+    // nada, para nunca sobrescrever dados existentes.
+    if (categoriesLoadedOk) {
+      try { Categories.ensureDefaults(); } catch (e) { console.warn('[loadFromCloud] ensureDefaults:', e.message || e); }
+    }
 
     if (goalRows) {
       this._set('GOALS', goalRows.map(r => ({
