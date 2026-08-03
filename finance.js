@@ -1,7 +1,5 @@
 'use strict';
 
-const INCOME_CATEGORIES = ['Salário','Comissão','Freelance','Bônus','Renda Extra','Aluguel','Investimento','Outros'];
-const EXPENSE_CATEGORIES = ['Alimentação','Transporte','Saúde','Moradia','Lazer','Educação','Roupas','Tecnologia','Assinatura','Outros'];
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 // ─── CARTÃO PADRÃO ────────────────────────────────────────────────────────────
@@ -520,7 +518,25 @@ const Finance = {
     return { totalIncome, totalExpenses, totalReceived, totalPaid, totalPending, previsao };
   },
 
+  // ── SALDO ANTERIOR (fonte única) ────────────────────────────────────────────
+  // Saldo final realizado do mês imediatamente anterior a (year, month).
+  // Usado por calcSaldoDisponivel e indiretamente por calcSaldoFinalMesEncerrado
+  // (via _calcSaldoAnteriorEncerrado), garantindo que os dois nunca divirjam
+  // sobre "quanto veio do mês passado". Corrige o erro em que o saldo do mês
+  // vigente/futuro era calculado do zero, ignorando o saldo final do mês anterior.
+  getMonthOpeningBalance(year, month) {
+    let py = year, pm = month - 1;
+    if (pm < 0) { pm = 11; py--; }
+    return this._calcSaldoAnteriorEncerrado(py, pm, 0, 24);
+  },
+
   // ── SALDO DISPONÍVEL (apenas mês vigente) ──────────────────────────────────
+  // saldo disponível = saldo final realizado do mês anterior
+  //                   + entradas realizadas do mês
+  //                   - saídas realizadas (não-crédito) do mês
+  //                   - faturas pagas do mês
+  //                   - gastos rápidos do mês
+  //                   - aportes de metas já processados do mês
   calcSaldoDisponivel(year, month) {
     const txs = this.getByCompetency(year, month);
 
@@ -545,23 +561,36 @@ const Finance = {
       .reduce((s, q) => s + (Number(q.amount) || 0), 0);
 
     const goalProcessed = sumProcessedGoalContributions(year, month);
+    const saldoAnterior = this.getMonthOpeningBalance(year, month);
 
-    return totalReceived - totalPaidNonCredit - invoicePaid - quickTotal - goalProcessed;
+    return saldoAnterior + totalReceived - totalPaidNonCredit - invoicePaid - quickTotal - goalProcessed;
   },
 
-  // ── PREVISÃO INTELIGENTE ───────────────────────────────────────────────────
+  // ── PREVISÃO INTELIGENTE (fonte única) ──────────────────────────────────────
+  // Mês vigente:  previsão = saldo disponível (já inclui o saldo do mês
+  //               anterior) + entradas pendentes - despesas/faturas/aportes
+  //               pendentes do próprio mês.
+  // Mês futuro (qualquer distância): previsão = previsão final do mês
+  //               imediatamente anterior + entradas previstas - saídas
+  //               previstas - aportes pendentes do mês. A cadeia nunca pula
+  //               um mês: setembro sempre passa por agosto, nunca é calculado
+  //               direto a partir de julho ou do saldo atual.
+  // Mês passado:  não existe "previsão" — delega para o saldo final realizado
+  //               (evita recursão sem fim e mantém uma única fonte de verdade
+  //               também para chamadas indevidas com mês já encerrado).
   calcPrevisao(year, month) {
     const today = new Date();
     const todayYear = today.getFullYear(), todayMonth = today.getMonth();
     const isCurrentMonth = year === todayYear && month === todayMonth;
+    const isPastMonth = year < todayYear || (year === todayYear && month < todayMonth);
 
-    let nextY = todayYear, nextM = todayMonth + 1;
-    if (nextM > 11) { nextM = 0; nextY++; }
-    const isNextMonth = year === nextY && month === nextM;
+    if (isPastMonth) {
+      return this.calcSaldoFinalMesEncerrado(year, month).saldoFinal;
+    }
 
     if (isCurrentMonth) {
       const txs  = this.getByCompetency(year, month);
-      const saldo = this.calcSaldoDisponivel(year, month);
+      const saldo = this.calcSaldoDisponivel(year, month); // já inclui saldo do mês anterior
 
       const entradasPendentes  = txs.filter(t => t.type === 'income'  && !t.paid)
                                      .reduce((s, t) => s + t.amount, 0);
@@ -569,39 +598,44 @@ const Finance = {
                                      .reduce((s, t) => s + t.amount, 0);
       const faturaPendente     = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod === 'credito')
                                      .reduce((s, t) => s + t.amount, 0);
-
-      const totalReceived = txs.filter(t => t.type === 'income' && t.paid).reduce((s, t) => s + t.amount, 0);
-      const quickNonCredit = Storage.getQuickExpenses()
-        .filter(q => {
-          if (q.paymentMethod === 'credito') return false;
-          const d = new Date(q.date + 'T00:00:00');
-          return d.getFullYear() === year && d.getMonth() === month;
-        })
-        .reduce((s, q) => s + (Number(q.amount) || 0), 0);
-
       const goalPendente = sumPendingGoalContributions(year, month);
-
-      if (totalReceived === 0 && quickNonCredit === 0) {
-        const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-        const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-        return inc - exp - goalPendente;
-      }
 
       return saldo + entradasPendentes - despesasPendentes - faturaPendente - goalPendente;
     }
 
-    if (isNextMonth) {
-      const prevPrevisao = this.calcPrevisao(todayYear, todayMonth);
-      const txs = this.getByCompetency(year, month);
-      const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-      const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-      return prevPrevisao + inc - exp - sumPendingGoalContributions(year, month);
-    }
+    // Mês futuro: encadeia sempre a partir do mês imediatamente anterior.
+    let py = year, pm = month - 1;
+    if (pm < 0) { pm = 11; py--; }
+    const prevPrevisao = this.calcPrevisao(py, pm);
 
     const txs = this.getByCompetency(year, month);
     const inc = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    return inc - exp - sumPendingGoalContributions(year, month);
+    return prevPrevisao + inc - exp - sumPendingGoalContributions(year, month);
+  },
+
+  // ── AUDITORIA (uso interno/depuração) ───────────────────────────────────────
+  // Detalhamento numérico de como o saldo/previsão de um mês foi produzido —
+  // não é usado por nenhuma tela, apenas disponível para inspeção (ex.: no
+  // console: Finance.getFinanceAudit(2026,7) para agosto/2026).
+  getFinanceAudit(year, month) {
+    const txs = this.getByCompetency(year, month);
+    const realizedIncome    = txs.filter(t => t.type === 'income'  && t.paid).reduce((s,t)=>s+t.amount,0);
+    const pendingIncome     = txs.filter(t => t.type === 'income'  && !t.paid).reduce((s,t)=>s+t.amount,0);
+    const realizedExpenses  = txs.filter(t => t.type === 'expense' && t.paid  && t.paymentMethod !== 'credito').reduce((s,t)=>s+t.amount,0);
+    const pendingExpenses   = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod !== 'credito').reduce((s,t)=>s+t.amount,0);
+    const paidInvoices      = txs.filter(t => t.type === 'expense' && t.paid  && t.paymentMethod === 'credito').reduce((s,t)=>s+t.amount,0);
+    const pendingInvoices   = txs.filter(t => t.type === 'expense' && !t.paid && t.paymentMethod === 'credito').reduce((s,t)=>s+t.amount,0);
+    const realizedContributions = sumProcessedGoalContributions(year, month);
+    const pendingContributions  = sumPendingGoalContributions(year, month);
+    return {
+      month: `${year}-${String(month+1).padStart(2,'0')}`,
+      previousBalance: this.getMonthOpeningBalance(year, month),
+      realizedIncome, pendingIncome, realizedExpenses, pendingExpenses,
+      paidInvoices, pendingInvoices, realizedContributions, pendingContributions,
+      availableBalance: this.calcSaldoDisponivel(year, month),
+      forecast: this.calcPrevisao(year, month),
+    };
   },
 
   getReminders() {
