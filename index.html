@@ -1078,6 +1078,10 @@
       <button id="close-categories-modal" class="modal-close">✕</button>
     </div>
     <div class="modal-body">
+      <div class="filter-pills" style="display:flex;gap:0.5rem;margin-bottom:0.85rem">
+        <button id="cat-tab-expense" type="button" class="filter-pill active" data-cattab="expense">Saídas</button>
+        <button id="cat-tab-income" type="button" class="filter-pill" data-cattab="income">Entradas</button>
+      </div>
       <button id="btn-add-category" type="button" class="btn btn-primary form-btn-full" style="margin-bottom:0.85rem">+ Nova Categoria</button>
       <div id="categories-list"></div>
     </div>
@@ -1095,13 +1099,8 @@
     </div>
     <div class="modal-body">
       <form id="category-form" onsubmit="return false">
-        <div class="form-group">
-          <label class="form-label">Tipo</label>
-          <select id="category-type" class="form-input">
-            <option value="expense">Saída (despesa)</option>
-            <option value="income">Entrada (receita)</option>
-          </select>
-        </div>
+        <input id="category-type" type="hidden" value="expense" />
+        <div id="category-type-badge" style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted-fg);margin-bottom:0.75rem">Categoria de saída</div>
         <div class="form-group">
           <label class="form-label">Nome</label>
           <input id="category-name" class="form-input" type="text" placeholder="ex: Alimentação" autocomplete="off" />
