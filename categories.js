@@ -41,6 +41,14 @@ const Categories = {
   active() {
     return this.list().filter(c => c.active !== false);
   },
+  // ── Fonte única para telas/formulários filtrados por tipo ───────────────────
+  // type: 'expense' | 'income'
+  byType(type) {
+    return this.list().filter(c => c.type === type);
+  },
+  activeByType(type) {
+    return this.active().filter(c => c.type === type);
+  },
   getById(id) {
     if (!id) return null;
     return Storage.getCategories().find(c => c.id === id) || null;
