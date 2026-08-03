@@ -96,6 +96,7 @@ const Storage = {
       keywords: c.keywords || [],
       position: c.position || 0,
       active: c.active !== false,
+      type: c.type === 'income' ? 'income' : 'expense',
       updated_at: c.updatedAt || new Date().toISOString(),
       created_at: c.createdAt || new Date().toISOString(),
     };
@@ -211,6 +212,7 @@ const Storage = {
           keywords: Array.isArray(r.keywords) ? r.keywords : [],
           position: r.position || 0,
           active: r.active !== false,
+          type: r.type === 'income' ? 'income' : 'expense',
           createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
         })));
       }
