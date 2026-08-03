@@ -225,3 +225,4 @@ const CatIntel = {
     Storage.setCategoryLearning(list);
   },
 };
+
