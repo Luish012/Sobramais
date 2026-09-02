@@ -531,10 +531,15 @@ function renderOverview() {
       saldoSection.style.display = 'none';
     }
 
-    if (balLabel) balLabel.textContent = 'Previsão do Mês';
+    if (balLabel) balLabel.textContent = isCurrentMonth ? 'Previsão do Mês' : 'Previsão final';
     balEl.textContent = fmtCurrency(previsao);
     balEl.className   = 'balance-amount ' + (previsao >= 0 ? 'positive' : 'negative');
-    balSub.textContent = 'Entradas ' + fmtCurrency(sum.totalIncome) + ' · Saídas ' + fmtCurrency(sum.totalExpenses);
+    if (isCurrentMonth) {
+      balSub.textContent = 'Saldo atual + entradas e saídas pendentes';
+    } else {
+      const opening = Finance.getMonthOpeningBalance(State.year, State.month);
+      balSub.textContent = `Saldo inicial ${fmtCurrency(opening)} · Entradas previstas ${fmtCurrency(sum.totalIncome)} · Saídas previstas ${fmtCurrency(sum.totalExpenses)}`;
+    }
 
     renderOverviewCashFlow();
   }
@@ -1035,6 +1040,7 @@ function txRow(t, dateOverride) {
   const status   = getDueStatus(t.dueDate);
   const isLate   = !isPaid && status === 'overdue';
   const isIncome = t.type === 'income';
+  const paidEarly = isPaid && t.paidDate && t.dueDate && t.paidDate < t.dueDate;
 
   const iconClass = isIncome ? 'income' : isPaid ? 'paid' : isLate ? 'late' : 'pending';
   const iconEmoji = isIncome ? (isPaid ? '✓' : '↓') : isPaid ? '✓' : isLate ? '!' : '○';
@@ -1043,8 +1049,12 @@ function txRow(t, dateOverride) {
   if (t.subtype === 'recurring')   badges.push('<span class="tag tag-blue">Recorrente</span>');
   if (t.subtype === 'installment') badges.push(`<span class="tag tag-purple">Parcela ${t.installmentCurrent}/${t.installmentTotal}</span>`);
   if (t.paymentMethod === 'credito') badges.push('<span class="tag tag-gold">💳 Crédito</span>');
+  if (paidEarly) badges.push(`<span class="tag tag-blue">${isIncome ? 'Recebida antecipadamente' : 'Paga antecipadamente'}</span>`);
 
   const dateDisplay = dateOverride || fmtDate(t.dueDate);
+  const dateLine = paidEarly
+    ? `${dateDisplay} · ${isIncome ? 'Recebido' : 'Pago'} em ${fmtDate(t.paidDate)}`
+    : dateDisplay;
   const payBtn = isIncome
     ? (isPaid ? `<button class="btn-undo" onclick="toggleTx('${t.id}')">Desfazer</button>`
               : `<button class="btn-pay income-pay" onclick="toggleTx('${t.id}')">Receber</button>`)
@@ -1060,7 +1070,7 @@ function txRow(t, dateOverride) {
       </div>
     </div>
     ${t.category ? `<div class="tx-cat">${esc(t.category)}</div>` : ''}
-    <div class="tx-date-line">${dateDisplay}</div>
+    <div class="tx-date-line">${dateLine}</div>
     ${badges.length > 0 ? `<div class="tx-badges">${badges.join('')}</div>` : ''}
     <div class="tx-actions">
       ${payBtn}
@@ -1079,7 +1089,47 @@ function emptyState(emoji, title, sub) {
 }
 
 // ─── ACTIONS ─────────────────────────────────────────────────────────────────
-function toggleTx(id) { Finance.togglePaid(id); refreshAll(); }
+function _getTxForAction(id) {
+  const stored = Storage.getTransactions().find(t => t.id === id);
+  if (stored) return stored;
+  return Finance.getByCompetency(State.year, State.month).find(t => t.id === id) || null;
+}
+
+function _isFutureDueDate(str) {
+  if (!str) return false;
+  const due = new Date(str + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return due > today;
+}
+
+function _advanceMessage(tx) {
+  const [year, month] = tx.dueDate.split('-').map(Number);
+  const monthLabel = `${String(month).padStart(2, '0')}/${year}`;
+  if (tx.type === 'income') {
+    return `Deseja receber esta entrada do mês ${monthLabel} antecipadamente?`;
+  }
+  if (tx.subtype === 'installment') {
+    return `Deseja adiantar esta parcela do mês ${monthLabel}?`;
+  }
+  return `Deseja adiantar esta conta do mês ${monthLabel}?`;
+}
+
+function toggleTx(id) {
+  const tx = _getTxForAction(id);
+  if (tx && !tx.paid && _isFutureDueDate(tx.dueDate)) {
+    confirmDialog(_advanceMessage(tx), () => {
+      Finance.togglePaid(id);
+      showToast(tx.type === 'income' ? 'Entrada recebida antecipadamente' : 'Conta paga antecipadamente', 'success');
+      refreshAll();
+      renderHomeBalance();
+    });
+    return;
+  }
+  Finance.togglePaid(id);
+  refreshAll();
+  renderHomeBalance();
+}
 function doDeleteTx(id) {
   if (id.startsWith('virtual_')) { showToast('Edite o lançamento original para parar a recorrência.', 'error'); return; }
   confirmDialog('Excluir este lançamento?', () => { Finance.deleteTransaction(id); showToast('Excluído'); refreshAll(); });
@@ -1298,8 +1348,14 @@ function saveTxForm() {
   }
 
   if (State.editTxId) {
-    Finance.updateTransaction(State.editTxId, base);
-    showToast('Lançamento atualizado', 'success');
+    const edited = Storage.getTransactions().find(t => t.id === State.editTxId);
+    if (edited?.subtype === 'installment' && subtype === 'installment') {
+      Finance.updateInstallmentSeries(State.editTxId, base);
+      showToast('Série de parcelas atualizada', 'success');
+    } else {
+      Finance.updateTransaction(State.editTxId, base);
+      showToast('Lançamento atualizado', 'success');
+    }
   } else if (subtype === 'installment' && instTotal > 1) {
     const groupId   = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
     const origDate  = parseLocalDate(dueDate);
@@ -2148,15 +2204,22 @@ function toggleProcessItem(kind, id, checked) {
   }
 }
 
-function confirmProcessPayments() {
-  const txIds = Array.from(_processSelectedTxIds);
-  const invoiceKeys = Array.from(_processSelectedInvoices);
-  const goalKeys = Array.from(_processSelectedGoals);
-  if (txIds.length === 0 && invoiceKeys.length === 0 && goalKeys.length === 0) {
-    showToast('Nenhum item selecionado', 'error');
-    return;
-  }
+function _getSelectedProcessTransactions(txIds, invoiceKeys) {
+  const selected = new Map();
+  txIds.forEach(id => {
+    const tx = _getTxForAction(id);
+    if (tx && !tx.paid) selected.set(tx.id, tx);
+  });
+  invoiceKeys.forEach(key => {
+    const [cardId, yearStr, monthStr] = key.split('::');
+    const card = Storage.getCards().find(c => c.id === cardId) || DEFAULT_CARD;
+    const invoice = Finance.getCardInvoice(Number(yearStr), Number(monthStr), card);
+    invoice.transactions.filter(t => !t.paid).forEach(t => selected.set(t.id, t));
+  });
+  return [...selected.values()];
+}
 
+function _executeProcessPayments(txIds, invoiceKeys, goalKeys) {
   if (txIds.length > 0) Finance.processPayments(txIds);
 
   invoiceKeys.forEach(key => {
@@ -2182,13 +2245,49 @@ function confirmProcessPayments() {
   renderHomeBalance();
 }
 
+function confirmProcessPayments() {
+  const txIds = Array.from(_processSelectedTxIds);
+  const invoiceKeys = Array.from(_processSelectedInvoices);
+  const goalKeys = Array.from(_processSelectedGoals);
+  if (txIds.length === 0 && invoiceKeys.length === 0 && goalKeys.length === 0) {
+    showToast('Nenhum item selecionado', 'error');
+    return;
+  }
+
+  const selectedTxs = _getSelectedProcessTransactions(txIds, invoiceKeys);
+  const futureTxs = selectedTxs.filter(t => _isFutureDueDate(t.dueDate));
+  const process = () => _executeProcessPayments(txIds, invoiceKeys, goalKeys);
+
+  if (futureTxs.length > 0) {
+    const total = futureTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const message = futureTxs.length === 1
+      ? _advanceMessage(futureTxs[0])
+      : `Você está antecipando ${futureTxs.length} lançamentos, totalizando ${fmtCurrency(total)}. Deseja continuar?`;
+    confirmDialog(message, process);
+    return;
+  }
+  process();
+}
+
 // ─── FATURA ───────────────────────────────────────────────────────────────────
 function payInvoice() {
   const card = getSelectedCard();
-  Finance.markInvoicePaid(State.year, State.month, card);
-  showToast('Fatura ' + MONTHS_PT[State.month] + '/' + State.year + ' marcada como paga!', 'success');
-  renderCardTab();
-  renderOverview();
+  const invoice = Finance.getCardInvoice(State.year, State.month, card);
+  const process = () => {
+    Finance.markInvoicePaid(State.year, State.month, card);
+    showToast('Fatura ' + MONTHS_PT[State.month] + '/' + State.year + ' marcada como paga!', 'success');
+    renderCardTab();
+    renderOverview();
+    renderHomeBalance();
+  };
+  if (_isFutureDueDate(invoice.dueDate)) {
+    confirmDialog(
+      `Deseja pagar a fatura de ${MONTHS_PT[State.month]}/${State.year} antecipadamente?`,
+      process
+    );
+    return;
+  }
+  process();
 }
 
 // ─── GOALS ────────────────────────────────────────────────────────────────────
